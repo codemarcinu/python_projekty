@@ -15,6 +15,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
+from fastapi.middleware.cors import CORSMiddleware
 
 from core.ai_engine import get_ai_engine
 from core.conversation_handler import get_conversation_manager, Conversation
@@ -27,6 +28,15 @@ logger = logging.getLogger(__name__)
 
 # Initialize FastAPI app
 app = FastAPI(title="AI Assistant")
+
+# Konfiguracja CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # W produkcji należy to ograniczyć
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Mount static files
 static_path = Path(__file__).parent.parent / "static"
@@ -69,11 +79,11 @@ async def get_chat_interface():
 @app.websocket("/ws/{conversation_id}")
 async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
     """WebSocket endpoint for real-time chat."""
-    await websocket.accept()
-    active_connections[conversation_id] = websocket
-    logger.info(f"WebSocket connection established for conversation {conversation_id}")
-    
     try:
+        await websocket.accept()
+        active_connections[conversation_id] = websocket
+        logger.info(f"WebSocket connection established for conversation {conversation_id}")
+        
         while True:
             try:
                 # Odbierz wiadomość jako tekst

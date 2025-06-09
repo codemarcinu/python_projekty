@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Asystent</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>AI Asystent</h1>
+            <div class="connection-status">
+                Status: <span id="connectionStatus" class="status-disconnected">Rozłączony</span>
+            </div>
+        </header>
+
+        <main>
+            <div class="chat-container">
+                <div id="chatHistory" class="chat-history"></div>
+                
+                <div class="input-container">
+                    <div class="input-wrapper">
+                        <textarea 
+                            id="messageInput" 
+                            placeholder="Napisz wiadomość..." 
+                            rows="3"
+                        ></textarea>
+                        <div class="controls">
+                            <label class="agent-toggle">
+                                <input type="checkbox" id="useAgent" checked>
+                                <span>Tryb agenta</span>
+                            </label>
+                            <button id="sendMessage" class="send-button">
+                                Wyślij
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <p>Powered by Ollama & LangChain</p>
+        </footer>
+    </div>
+
+    <script src="/static/js/dashboard.js"></script>
+</body>
+</html> 

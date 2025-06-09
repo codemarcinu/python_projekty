@@ -187,7 +187,7 @@ class WebSocketManager {
     
     connect() {
         try {
-            // POPRAWNY protokół WebSocket
+            // POPRAWNY protokół WebSocket z conversation_id
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const wsUrl = `${protocol}//${window.location.host}/ws/${this.conversationId}`;
             
