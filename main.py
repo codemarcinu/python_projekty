@@ -13,6 +13,7 @@ from rich.console import Console
 
 from core.rag_manager import RAGManager
 from core.config_manager import get_settings
+from core.llm_manager import get_llm_manager, ModelUnavailableError
 
 # Configure logging
 logging.basicConfig(
@@ -50,6 +51,12 @@ def serve(
     )
 ):
     """Start the web server."""
+    llm_manager = get_llm_manager()
+    try:
+        asyncio.run(llm_manager.validate_ollama_model())
+    except ModelUnavailableError as e:
+        console.print(f"[bold red]Błąd: {e}[/bold red]")
+        raise typer.Exit(code=1)
     from interfaces.web_ui import app as web_app
     console.print(f"[bold blue]Starting web server at http://{host}:{port}[/bold blue]")
     uvicorn.run(

@@ -3,7 +3,7 @@ Conversation handler for managing chat history and context.
 Provides functionality for storing and retrieving conversation history.
 """
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, ClassVar
 import logging
 from pathlib import Path
 
@@ -33,7 +33,7 @@ class Conversation(BaseModel):
     updated_at: datetime = Field(default_factory=datetime.now, description="Last update timestamp")
     
     # Maximum number of messages to keep in history
-    MAX_MESSAGES = 100
+    MAX_MESSAGES: ClassVar[int] = 100
     
     def add_message(self, role: str, content: str) -> None:
         """Add a new message to the conversation."""

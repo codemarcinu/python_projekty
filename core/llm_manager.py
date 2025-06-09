@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 import asyncio
 import logging
 from datetime import datetime
+import aiohttp
 
 from langchain.callbacks.manager import CallbackManager
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
@@ -207,6 +208,31 @@ class LLMManager:
             "model_initialized": self._llm is not None,
             "embeddings_initialized": self._embeddings is not None
         }
+
+    async def validate_ollama_model(self) -> None:
+        """
+        Validate that Ollama server is running and the required model is available.
+        Raises ModelUnavailableError with a user-friendly message if not.
+        """
+        host = self.settings.llm.ollama_host.rstrip("/")
+        model = self.settings.llm.model_name
+        tags_url = f"{host}/api/tags"
+        try:
+            timeout = aiohttp.ClientTimeout(total=5)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(tags_url) as resp:
+                    if resp.status != 200:
+                        raise ModelUnavailableError(f"Ollama API not available at {host} (status {resp.status})")
+                    data = await resp.json()
+                    available_models = [m['name'] for m in data.get('models', [])]
+                    if model not in available_models:
+                        raise ModelUnavailableError(
+                            f"Model '{model}' is not available in Ollama. Dostępne modele: {', '.join(available_models) if available_models else 'brak'}. "
+                            f"Użyj 'ollama pull {model}' lub zmień PRIMARY_MODEL w .env."
+                        )
+        except Exception as e:
+            logger.error(f"Ollama validation error: {e}")
+            raise ModelUnavailableError(f"Nie można połączyć z Ollama ({host}) lub model '{model}' nie jest dostępny. Szczegóły: {e}")
 
 # Create global LLM manager instance
 llm_manager = LLMManager()

@@ -4,7 +4,7 @@ Handles loading and validating configuration from environment variables and conf
 """
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 import logging
 from pydantic import BaseModel, Field, validator
 from dotenv import load_dotenv
@@ -27,12 +27,17 @@ load_dotenv()
 class LLMSettings(BaseModel):
     """Settings for LLM configuration."""
     provider: str = Field(default="ollama", description="LLM provider (e.g., ollama, vllm)")
-    model_name: str = Field(default="llama2", description="Name of the LLM model to use")
+    model_name: str = Field(default="gemma3:12b", description="Name of the LLM model to use")
     ollama_host: str = Field(default="http://localhost:11434", description="Ollama API host")
     temperature: float = Field(default=0.7, ge=0.0, le=1.0, description="Temperature for text generation")
     timeout: int = Field(default=300, gt=0, description="Timeout in seconds for LLM operations")
     max_tokens: int = Field(default=2000, gt=0, description="Maximum tokens in response")
     context_window: int = Field(default=4096, gt=0, description="Context window size")
+    use_agent_mode: bool = Field(default=True, description="Whether to use agent mode with tools")
+    agent_tools: List[str] = Field(
+        default=["search", "calculator", "weather", "time"],
+        description="List of tools available to the agent"
+    )
 
 class RAGSettings(BaseModel):
     """Settings for RAG system configuration."""
