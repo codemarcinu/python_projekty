@@ -4,6 +4,11 @@ Handles loading and validation of application settings.
 """
 from pathlib import Path
 from typing import Optional
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -65,3 +70,25 @@ settings = Settings()
 def get_settings() -> Settings:
     """Get the global settings instance."""
     return settings
+
+class ConfigManager:
+    """Manager for configuration and environment variables."""
+    
+    @staticmethod
+    def get_secret(key: str) -> str:
+        """
+        Get a secret value from environment variables.
+        
+        Args:
+            key: The environment variable key to retrieve.
+            
+        Returns:
+            The value of the environment variable.
+            
+        Raises:
+            ValueError: If the environment variable is not found.
+        """
+        value = os.getenv(key)
+        if value is None:
+            raise ValueError(f"Environment variable '{key}' not found")
+        return value
