@@ -5,9 +5,9 @@ Ten moduł odpowiada za wysyłanie zapytań do lokalnego modelu LLM
 za pomocą biblioteki ollama i odbieranie odpowiedzi.
 """
 
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Sequence, cast
 import ollama
-from .config_manager import Settings, get_settings
+from .config_manager import settings
 
 
 class LLMManager:
@@ -15,8 +15,7 @@ class LLMManager:
 
     def __init__(self) -> None:
         """Inicjalizuje menedżera LLM."""
-        self.settings = get_settings()
-        self.model = self.settings.LLM_MODEL
+        self.model = settings.LLM_MODEL
 
     def generate_response(self, history: List[Dict[str, str]]) -> str:
         """Generuje odpowiedź na podstawie historii konwersacji.
@@ -29,10 +28,13 @@ class LLMManager:
             str: Wygenerowana odpowiedź modelu
         """
         try:
+            # Konwertujemy historię do formatu akceptowanego przez ollama
+            messages = [{"role": msg["role"], "content": msg["content"]} for msg in history]
+            # type: ignore - ollama ma własne typy, które nie są w pełni kompatybilne z typami Pythona
             response = ollama.chat(
                 model=self.model,
-                messages=history
+                messages=messages  # type: ignore
             )
-            return response['message']['content']
+            return cast(Dict[str, Any], response)['message']['content']
         except Exception as e:
             return f"Wystąpił błąd podczas generowania odpowiedzi: {str(e)}"

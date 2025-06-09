@@ -6,7 +6,6 @@ oraz zapewnia dostęp do tych ustawień w całej aplikacji.
 """
 
 from typing import Literal
-from functools import lru_cache
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pathlib import Path
 
@@ -41,21 +40,5 @@ class Settings(BaseSettings):
     )
 
 
-@lru_cache()
-def get_settings() -> Settings:
-    """
-    Tworzy i zwraca globalną instancję ustawień aplikacji.
-    
-    Funkcja jest opakowana dekoratorem @lru_cache, co zapewnia,
-    że ustawienia będą wczytywane tylko raz i później będą zwracane
-    z pamięci podręcznej.
-    
-    Returns:
-        Settings: Instancja klasy Settings z wczytanymi ustawieniami
-        
-    Example:
-        >>> settings = get_settings()
-        >>> print(settings.LLM_PROVIDER)
-        'ollama'
-    """
-    return Settings()
+# Globalna instancja ustawień, którą można importować z innych modułów
+settings = Settings()

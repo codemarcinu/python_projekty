@@ -10,6 +10,7 @@ from rich.console import Console
 from core.ai_engine import AIEngine
 from core.conversation_handler import ConversationHandler
 from core.database import init_db
+from core.config_manager import settings
 
 # Inicjalizacja aplikacji Typer
 app = typer.Typer()
@@ -23,6 +24,9 @@ def main():
     """
     # Inicjalizuj bazę danych TYLKO RAZ przy starcie.
     init_db()
+    
+    # Wyświetl informację o używanym modelu
+    console.print(f"🔌 Korzystam z modelu: [bold green]{settings.LLM_MODEL}[/bold green]")
 
     engine = AIEngine()
     handler = ConversationHandler()

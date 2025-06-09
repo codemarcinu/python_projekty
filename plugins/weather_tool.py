@@ -3,7 +3,7 @@
 import requests
 import json
 from core.plugin_system import tool
-from core.config_manager import get_settings
+from core.config_manager import settings
 
 @tool
 def get_current_weather(city: str) -> str:
@@ -14,7 +14,6 @@ def get_current_weather(city: str) -> str:
     :param city: Nazwa miasta, dla którego ma być sprawdzona pogoda.
     :return: Sformatowany ciąg znaków z danymi pogodowymi lub komunikat o błędzie.
     """
-    settings = get_settings()
     api_key = settings.WEATHER_API_KEY
     base_url = "http://api.openweathermap.org/data/2.5/weather?"
     
