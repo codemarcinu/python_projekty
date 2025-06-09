@@ -6,7 +6,7 @@
     <title>Lokalny Asystent AI</title>
     <style>
         body { 
-            font-family: sans-serif; 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             display: flex; 
             justify-content: center; 
             align-items: center; 
@@ -16,10 +16,10 @@
         }
         #chat-container { 
             width: 90%; 
-            max-width: 600px; 
+            max-width: 800px; 
             height: 80vh; 
             border: 1px solid #ccc; 
-            border-radius: 8px; 
+            border-radius: 12px; 
             display: flex; 
             flex-direction: column; 
             background-color: white; 
@@ -30,54 +30,119 @@
             padding: 20px; 
             overflow-y: auto; 
             border-bottom: 1px solid #ccc; 
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
         }
         .message { 
-            margin-bottom: 15px; 
-            padding: 10px; 
-            border-radius: 8px; 
-            line-height: 1.4; 
+            padding: 12px 16px;
+            border-radius: 12px; 
+            line-height: 1.5;
+            max-width: 80%;
+            word-wrap: break-word;
+            animation: fadeIn 0.3s ease-in-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
         }
         .user-message { 
-            background-color: #e1f5fe; 
-            align-self: flex-end; 
-            text-align: right; 
+            background-color: #007bff;
+            color: white;
+            align-self: flex-end;
+            border-bottom-right-radius: 4px;
         }
         .assistant-message { 
-            background-color: #f1f8e9; 
+            background-color: #f1f8e9;
+            color: #2c3e50;
+            align-self: flex-start;
+            border-bottom-left-radius: 4px;
+        }
+        .typing-indicator {
+            display: inline-block;
+            margin-left: 8px;
+        }
+        .typing-indicator span {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background-color: #666;
+            border-radius: 50%;
+            margin: 0 2px;
+            animation: typing 1s infinite;
+        }
+        .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+        .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes typing {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-5px); }
         }
         #input-area { 
             display: flex; 
-            padding: 10px; 
+            padding: 16px;
+            gap: 12px;
+            background-color: #f8f9fa;
+            border-bottom-left-radius: 12px;
+            border-bottom-right-radius: 12px;
         }
         #user-input { 
             flex-grow: 1; 
-            border: 1px solid #ccc; 
-            border-radius: 4px; 
-            padding: 10px; 
-            font-size: 16px; 
+            border: 2px solid #e9ecef;
+            border-radius: 8px; 
+            padding: 12px 16px;
+            font-size: 16px;
+            transition: border-color 0.2s;
+        }
+        #user-input:focus {
+            outline: none;
+            border-color: #007bff;
         }
         #send-button { 
-            margin-left: 10px; 
-            padding: 10px 20px; 
+            padding: 12px 24px;
             border: none; 
             background-color: #007bff; 
             color: white; 
-            border-radius: 4px; 
+            border-radius: 8px; 
             cursor: pointer; 
-            font-size: 16px; 
+            font-size: 16px;
+            font-weight: 600;
+            transition: background-color 0.2s;
         }
         #send-button:hover { 
             background-color: #0056b3; 
         }
+        #send-button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        #connection-status {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.3s;
+        }
+        .status-connected {
+            background-color: #28a745;
+            color: white;
+        }
+        .status-disconnected {
+            background-color: #dc3545;
+            color: white;
+        }
     </style>
 </head>
 <body>
+    <div id="connection-status" class="status-disconnected">Rozłączony</div>
     <div id="chat-container">
         <div id="chat-box">
             <div class="message assistant-message">Witaj! Jestem Twoim asystentem AI. W czym mogę Ci dzisiaj pomóc?</div>
         </div>
         <div id="input-area">
-            <input type="text" id="user-input" placeholder="Wpisz wiadomość...">
+            <input type="text" id="user-input" placeholder="Wpisz wiadomość..." autocomplete="off">
             <button id="send-button">Wyślij</button>
         </div>
     </div>
@@ -86,67 +151,92 @@
         const chatBox = document.getElementById('chat-box');
         const userInput = document.getElementById('user-input');
         const sendButton = document.getElementById('send-button');
+        const connectionStatus = document.getElementById('connection-status');
+        
+        let ws = null;
+        let currentAssistantMessage = null;
+        let isTyping = false;
 
-        // Przechowujemy historię rozmowy po stronie przeglądarki
-        let conversationHistory = [];
+        // Funkcja do nawiązywania połączenia WebSocket
+        function connectWebSocket() {
+            ws = new WebSocket('ws://localhost:8000/ws');
+            
+            ws.onopen = () => {
+                console.log('Połączono z serwerem WebSocket');
+                connectionStatus.textContent = 'Połączony';
+                connectionStatus.classList.remove('status-disconnected');
+                connectionStatus.classList.add('status-connected');
+                sendButton.disabled = false;
+            };
+            
+            ws.onclose = () => {
+                console.log('Rozłączono z serwerem WebSocket');
+                connectionStatus.textContent = 'Rozłączony';
+                connectionStatus.classList.remove('status-connected');
+                connectionStatus.classList.add('status-disconnected');
+                sendButton.disabled = true;
+                
+                // Próba ponownego połączenia po 3 sekundach
+                setTimeout(connectWebSocket, 3000);
+            };
+            
+            ws.onerror = (error) => {
+                console.error('Błąd WebSocket:', error);
+            };
+            
+            ws.onmessage = (event) => {
+                if (!currentAssistantMessage) {
+                    // Pierwszy token - tworzymy nowy element wiadomości
+                    currentAssistantMessage = document.createElement('div');
+                    currentAssistantMessage.classList.add('message', 'assistant-message');
+                    chatBox.appendChild(currentAssistantMessage);
+                }
+                
+                // Dodajemy token do wiadomości
+                currentAssistantMessage.textContent += event.data;
+                
+                // Automatycznie przewijamy na dół
+                chatBox.scrollTop = chatBox.scrollHeight;
+            };
+        }
 
-        // Funkcja do dodawania wiadomości do okna czatu
-        function addMessageToChat(text, sender) {
+        // Funkcja do dodawania wiadomości użytkownika
+        function addUserMessage(text) {
             const messageElement = document.createElement('div');
-            messageElement.classList.add('message', sender === 'user' ? 'user-message' : 'assistant-message');
+            messageElement.classList.add('message', 'user-message');
             messageElement.textContent = text;
             chatBox.appendChild(messageElement);
-            // Automatycznie przewijaj na dół
             chatBox.scrollTop = chatBox.scrollHeight;
         }
 
-        // Asynchroniczna funkcja do wysyłania wiadomości do naszego API
-        async function sendMessage() {
-            const prompt = userInput.value.trim();
-            if (!prompt) return; // Nie wysyłaj pustych wiadomości
+        // Funkcja do wysyłania wiadomości
+        function sendMessage() {
+            const message = userInput.value.trim();
+            if (!message || !ws || ws.readyState !== WebSocket.OPEN) return;
 
-            // Dodaj wiadomość użytkownika do interfejsu
-            addMessageToChat(prompt, 'user');
-            userInput.value = ''; // Wyczyść pole do wpisywania
-
-            try {
-                // Wyślij zapytanie do naszego API
-                const response = await fetch('/api/chat', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        prompt: prompt,
-                        history: conversationHistory
-                    }),
-                });
-
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-
-                const data = await response.json();
-
-                // Zaktualizuj historię i dodaj odpowiedź asystenta do interfejsu
-                conversationHistory = data.history;
-                addMessageToChat(data.reply, 'assistant');
-
-            } catch (error) {
-                console.error('Błąd podczas komunikacji z API:', error);
-                addMessageToChat('Przepraszam, wystąpił błąd komunikacji z serwerem.', 'assistant');
-            }
+            // Dodajemy wiadomość użytkownika
+            addUserMessage(message);
+            
+            // Wysyłamy wiadomość przez WebSocket
+            ws.send(message);
+            
+            // Czyścimy pole input i resetujemy stan
+            userInput.value = '';
+            currentAssistantMessage = null;
         }
 
-        // Nasłuchuj na kliknięcie przycisku "Wyślij"
+        // Event listeners
         sendButton.addEventListener('click', sendMessage);
-
-        // Nasłuchuj na wciśnięcie klawisza "Enter" w polu tekstowym
+        
         userInput.addEventListener('keydown', (event) => {
-            if (event.key === 'Enter') {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
                 sendMessage();
             }
         });
+
+        // Inicjalizacja połączenia WebSocket
+        connectWebSocket();
     </script>
 </body>
 </html> 

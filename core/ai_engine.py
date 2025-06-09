@@ -7,7 +7,7 @@ z systemem wtyczek, umożliwiając agentowi wykonywanie zadań i odpowiadanie u�
 
 import json
 import inspect
-from typing import List, Dict, Any, Union
+from typing import List, Dict, Any, Union, AsyncGenerator, cast, Callable
 from pydantic import ValidationError
 
 from langchain.chains import LLMChain
@@ -246,3 +246,64 @@ Narzędzie:"""
                 input=user_prompt,
                 tools=self.tools_description
             )
+
+    async def process_turn_stream(self, conversation_history: List[Dict[str, str]]) -> AsyncGenerator[str, None]:
+        """
+        Asynchroniczna wersja process_turn, która strumieniuje odpowiedź token po tokenie.
+        
+        Args:
+            conversation_history (List[Dict[str, str]]): Historia konwersacji.
+            
+        Yields:
+            str: Pojedynczy token odpowiedzi.
+        """
+        user_prompt = conversation_history[-1]['content']
+        chosen_tool_name = self._choose_tool(conversation_history)
+
+        if chosen_tool_name != "None":
+            tool = get_tool(chosen_tool_name)
+            model_class = self.tool_arg_models.get(chosen_tool_name)
+            
+            tool_args = {}
+            if model_class and not isinstance(tool, BaseTool):
+                extracted_args = self._get_tool_args(chosen_tool_name, conversation_history)
+                try:
+                    validated_args = model_class(**extracted_args)
+                    tool_args = validated_args.model_dump()
+                    print(f"DEBUG: Validated arguments: {tool_args}")
+                except ValidationError as e:
+                    error_msg = f"Błąd Walidacji Danych dla narzędzia '{chosen_tool_name}':\n{e}"
+                    yield error_msg
+                    return
+            else:
+                tool_args = self._get_tool_args(chosen_tool_name, conversation_history)
+            
+            try:
+                # Wykonujemy narzędzie i pobieramy wynik
+                if isinstance(tool, BaseTool):
+                    # Dla narzędzi implementujących protokół BaseTool
+                    tool_result = tool.execute(**tool_args)
+                elif callable(tool):
+                    # Dla funkcji z dekoratorem @tool
+                    tool_result = tool(**tool_args)
+                else:
+                    raise TypeError(f"Narzędzie '{chosen_tool_name}' nie jest ani BaseTool, ani funkcją")
+                    
+                final_response_prompt = f"""You are a helpful assistant. A tool has just been executed...
+                Tool's result: "{tool_result}"
+                Based on the tool's result, formulate a brief, natural, and helpful response to the user in Polish."""
+                
+                # Strumieniujemy odpowiedź token po tokenie
+                async for token in self.llm.generate_response_stream([{'role': 'user', 'content': final_response_prompt}]):
+                    yield token
+                    
+            except Exception as e:
+                error_msg = f"Error while executing tool {chosen_tool_name}: {e}"
+                yield error_msg
+        else:
+            # Używamy strumieniowania dla głównego łańcucha LangChain
+            response = await self.chain.ainvoke({
+                "input": user_prompt,
+                "tools": self.tools_description
+            })
+            yield response["output"]

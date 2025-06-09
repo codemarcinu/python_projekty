@@ -1,13 +1,13 @@
 """
 Moduł implementujący API REST dla asystenta AI.
-Wykorzystuje FastAPI do obsługi zapytań HTTP.
+Wykorzystuje FastAPI do obsługi zapytań HTTP oraz WebSocket do komunikacji w czasie rzeczywistym.
 """
 
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
-from typing import List, Dict
+from typing import List, Dict, AsyncGenerator
 
 # Importujemy nasz gotowy silnik AI i menedżera konwersacji
 from core.ai_engine import AIEngine
@@ -60,3 +60,55 @@ def chat_endpoint(request: ChatRequest):
 
     # Odsyłamy odpowiedź i zaktualizowaną historię
     return ChatResponse(reply=response_text, history=handler.get_history())
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    """
+    Endpoint WebSocket do obsługi komunikacji w czasie rzeczywistym z asystentem AI.
+    
+    Args:
+        websocket (WebSocket): Obiekt połączenia WebSocket.
+        
+    Obsługuje:
+        - Akceptację nowego połączenia
+        - Odbieranie wiadomości od klienta
+        - Przetwarzanie wiadomości przez silnik AI
+        - Strumieniowanie odpowiedzi do klienta
+        - Obsługę rozłączenia klienta
+    """
+    # Akceptujemy nowe połączenie
+    await websocket.accept()
+    
+    # Tworzymy nowy handler konwersacji dla tego połączenia
+    handler = ConversationHandler()
+    
+    try:
+        while True:
+            # Czekamy na wiadomość od klienta
+            message = await websocket.receive_text()
+            
+            # Dodajemy wiadomość użytkownika do historii
+            handler.add_message(role="user", content=message)
+            
+            # Przetwarzamy zapytanie przez silnik AI i strumieniujemy odpowiedź
+            full_response = ""
+            async for token in engine.process_turn_stream(handler.get_history()):
+                await websocket.send_text(token)
+                full_response += token
+            
+            # Dodajemy pełną odpowiedź do historii
+            handler.add_message(role="assistant", content=full_response)
+            
+    except WebSocketDisconnect:
+        # Obsługa rozłączenia klienta
+        print("Klient rozłączony")
+    except Exception as e:
+        # Obsługa innych błędów
+        error_message = f"Wystąpił błąd: {str(e)}"
+        print(error_message)
+        try:
+            await websocket.send_text(error_message)
+        except:
+            pass  # Ignorujemy błędy wysyłania wiadomości o błędzie
+        finally:
+            await websocket.close()

@@ -5,7 +5,7 @@ Ten moduł odpowiada za wysyłanie zapytań do lokalnego modelu LLM
 za pomocą biblioteki ollama i odbieranie odpowiedzi.
 """
 
-from typing import List, Dict, Any, cast
+from typing import List, Dict, Any, cast, AsyncGenerator
 import ollama
 from langchain_community.llms import Ollama
 from langchain.callbacks.manager import CallbackManager
@@ -70,14 +70,38 @@ class OllamaClient:
             # Typ messages jest zgodny z dokumentacją oficjalnego klienta Ollama (list[dict[str, str]])
             response = self.client.chat(
                 model=self.model,
-                messages=messages  # type: ignore[arg-type]
+                messages=messages,  # type: ignore[arg-type]
+                stream=False
             )
-            # Jeśli response jest iteratorem (stream=True), pobierz pierwszy element
-            if isinstance(response, Iterator):
-                response = next(response)
             return response['message']['content']
         except Exception as e:
             return f"Wystąpił błąd podczas generowania odpowiedzi: {str(e)}"
+
+    async def generate_response_stream(self, history: List[Dict[str, str]]) -> AsyncGenerator[str, None]:
+        """
+        Asynchronicznie generuje odpowiedź strumieniowo, token po tokenie.
+        
+        Args:
+            history (List[Dict[str, str]]): Lista słowników zawierających historię konwersacji,
+                gdzie każdy słownik ma klucze 'role' i 'content'
+        
+        Yields:
+            str: Pojedynczy token odpowiedzi
+        """
+        try:
+            messages = [{"role": msg["role"], "content": msg["content"]} for msg in history]
+            stream = self.client.chat(
+                model=self.model,
+                messages=messages,  # type: ignore[arg-type]
+                stream=True
+            )
+            
+            for chunk in stream:
+                if 'message' in chunk and 'content' in chunk['message']:
+                    yield chunk['message']['content']
+                    
+        except Exception as e:
+            yield f"Wystąpił błąd podczas generowania odpowiedzi: {str(e)}"
 
     def get_langchain_llm(self) -> Ollama:
         """
