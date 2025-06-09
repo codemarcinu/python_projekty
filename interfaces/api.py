@@ -187,3 +187,65 @@ async def upload_document(file: UploadFile = File(...)) -> JSONResponse:
             status_code=500,
             detail=f"Wystąpił błąd podczas przetwarzania pliku: {str(e)}"
         )
+
+@app.get("/documents/", response_model=List[str])
+async def list_documents() -> List[str]:
+    """Endpoint do pobierania listy dokumentów w bazie wektorowej.
+    
+    Zwraca listę unikalnych nazw plików, które zostały dodane do bazy wektorowej.
+    Lista jest posortowana alfabetycznie.
+    
+    Returns:
+        List[str]: Lista nazw plików w bazie wektorowej.
+                  Jeśli baza jest pusta, zwraca pustą listę.
+                  
+    Raises:
+        HTTPException: W przypadku błędów podczas pobierania listy dokumentów.
+    """
+    try:
+        documents = engine.rag_manager.list_documents()
+        return documents
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Wystąpił błąd podczas pobierania listy dokumentów: {str(e)}"
+        )
+
+@app.delete("/documents/{document_name}")
+async def delete_document(document_name: str) -> JSONResponse:
+    """Endpoint do usuwania dokumentu z bazy wektorowej.
+    
+    Usuwa wszystkie fragmenty dokumentu o podanej nazwie z bazy wektorowej
+    oraz oryginalny plik z katalogu uploads.
+    
+    Args:
+        document_name (str): Nazwa pliku do usunięcia.
+        
+    Returns:
+        JSONResponse: Informacja o statusie operacji.
+        
+    Raises:
+        HTTPException: W przypadku gdy dokument nie został znaleziony (404)
+                      lub wystąpił inny błąd podczas usuwania (500).
+    """
+    try:
+        success = engine.rag_manager.delete_document(document_name)
+        
+        if success:
+            return JSONResponse(
+                status_code=200,
+                content={"message": f"Dokument '{document_name}' został pomyślnie usunięty."}
+            )
+        else:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Dokument '{document_name}' nie został znaleziony w bazie."
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Wystąpił błąd podczas usuwania dokumentu: {str(e)}"
+        )

@@ -125,6 +125,13 @@ class RAGManager:
             chunks = text_splitter.split_documents(documents)
             print(f"Podzielono na {len(chunks)} fragmentów")
             
+            # Dodanie metadanych o pochodzeniu do każdego fragmentu
+            source_filename = file_path.name
+            for chunk in chunks:
+                if chunk.metadata is None:
+                    chunk.metadata = {}
+                chunk.metadata["source_filename"] = source_filename
+            
             # Dodanie dokumentów do bazy wektorowej
             if self.vector_store is None:
                 # Tworzenie nowej bazy wektorowej
@@ -198,3 +205,76 @@ class RAGManager:
         response = self.config.llm_model.generate(prompt)
         
         return response 
+
+    def list_documents(self) -> list[str]:
+        """Zwraca listę unikalnych nazw dokumentów przechowywanych w bazie wektorowej.
+        
+        Metoda przeszukuje wszystkie fragmenty dokumentów w bazie wektorowej i wyciąga
+        z ich metadanych nazwy plików źródłowych. Zwraca listę unikalnych nazw plików.
+        
+        Returns:
+            list[str]: Lista unikalnych nazw plików przechowywanych w bazie.
+                      Jeśli baza jest pusta lub nie istnieje, zwraca pustą listę.
+        """
+        if self.vector_store is None:
+            return []
+            
+        # Pobranie wszystkich dokumentów z magazynu
+        all_docs = self.vector_store.docstore._docs
+        
+        # Wyciągnięcie unikalnych nazw plików z metadanych
+        unique_filenames = set()
+        for doc in all_docs.values():
+            if doc.metadata and "source_filename" in doc.metadata:
+                unique_filenames.add(doc.metadata["source_filename"])
+        
+        return sorted(list(unique_filenames))
+
+    def delete_document(self, filename_to_delete: str) -> bool:
+        """Usuwa dokument i jego wszystkie fragmenty z bazy wektorowej.
+        
+        Metoda znajduje wszystkie fragmenty dokumentu o podanej nazwie pliku
+        i usuwa je z bazy wektorowej. Następnie usuwa również oryginalny plik
+        z katalogu uploads.
+        
+        Args:
+            filename_to_delete (str): Nazwa pliku do usunięcia.
+            
+        Returns:
+            bool: True jeśli usunięto jakiekolwiek fragmenty dokumentu,
+                 False jeśli dokument nie został znaleziony lub baza jest pusta.
+                 
+        Raises:
+            Exception: W przypadku błędów podczas usuwania pliku lub zapisywania bazy.
+        """
+        if self.vector_store is None:
+            return False
+            
+        # Lista ID fragmentów do usunięcia
+        ids_to_delete = []
+        
+        # Znajdowanie wszystkich fragmentów dokumentu
+        for docstore_id in self.vector_store.index_to_docstore_id.values():
+            doc = self.vector_store.docstore._docs.get(docstore_id)
+            if doc and doc.metadata and doc.metadata.get("source_filename") == filename_to_delete:
+                ids_to_delete.append(docstore_id)
+        
+        # Jeśli znaleziono fragmenty do usunięcia
+        if ids_to_delete:
+            # Usunięcie fragmentów z bazy wektorowej
+            self.vector_store.delete(ids_to_delete)
+            
+            # Zapisanie zmian na dysku
+            self.vector_store.save_local(self.index_path)
+            
+            # Usunięcie oryginalnego pliku
+            file_path = Path("data/uploads") / filename_to_delete
+            try:
+                if file_path.exists():
+                    file_path.unlink()
+            except Exception as e:
+                print(f"Ostrzeżenie: Nie udało się usunąć pliku {filename_to_delete}: {e}")
+            
+            return True
+            
+        return False 
