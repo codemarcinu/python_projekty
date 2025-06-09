@@ -1,25 +1,24 @@
 from typing import Dict, Callable, Any, List
 import importlib
 import os
+import functools
 from functools import wraps
 
 # Słownik przechowujący zarejestrowane narzędzia
 _tools: Dict[str, Callable] = {}
 
 def tool(func: Callable) -> Callable:
-    """Dekorator rejestrujący funkcję jako narzędzie w systemie wtyczek.
-    
-    Args:
-        func (Callable): Funkcja do zarejestrowania jako narzędzie.
-        
-    Returns:
-        Callable: Oryginalna funkcja, niezmodyfikowana.
     """
-    @wraps(func)
+    Dekorator do rejestrowania funkcji jako narzędzia, który poprawnie
+    zachowuje metadane funkcji (w tym jej sygnaturę i argumenty).
+    """
+    @functools.wraps(func)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
+        # Ten "opakowujący" kod jest potrzebny, aby @functools.wraps działał poprawnie.
+        # Po prostu wywołuje on oryginalną funkcję z jej argumentami.
         return func(*args, **kwargs)
     
-    # Rejestracja funkcji w słowniku narzędzi
+    # Rejestrujemy nową funkcję 'wrapper', która zachowuje metadane oryginału
     _tools[func.__name__] = wrapper
     return wrapper
 
