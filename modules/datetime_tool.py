@@ -5,7 +5,7 @@ Ten moduł dostarcza funkcjonalność do sprawdzania aktualnej daty i godziny.
 """
 
 from datetime import datetime
-from core.plugin_system import tool
+from core.module_system import tool
 
 
 @tool

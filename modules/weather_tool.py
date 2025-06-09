@@ -1,8 +1,8 @@
-# plugins/weather_tool.py
+# modules/weather_tool.py
 
 import requests
 import json
-from core.plugin_system import tool
+from core.module_system import tool
 from core.config_manager import settings
 
 @tool

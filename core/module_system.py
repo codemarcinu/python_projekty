@@ -1,3 +1,10 @@
+"""
+System modułów dla aplikacji AI.
+
+Ten moduł zapewnia mechanizm dynamicznego ładowania i zarządzania modułami
+rozszerzającymi funkcjonalność aplikacji.
+"""
+
 from typing import Dict, Callable, Any, List
 import importlib
 import os
@@ -46,26 +53,27 @@ def get_available_tools() -> List[str]:
     """
     return list(_tools.keys())
 
-def load_plugins(plugin_dir: str) -> None:
+def load_modules(module_dir: str) -> None:
     """Dynamicznie ładuje wszystkie moduły .py z podanego katalogu.
     
     Args:
-        plugin_dir (str): Ścieżka do katalogu zawierającego wtyczki.
+        module_dir (str): Ścieżka do katalogu zawierającego moduły.
         
     Raises:
         ImportError: Jeśli wystąpi błąd podczas importowania modułu.
+        FileNotFoundError: Jeśli katalog modułów nie istnieje.
     """
     # Sprawdzenie czy katalog istnieje
-    if not os.path.exists(plugin_dir):
-        raise FileNotFoundError(f"Katalog wtyczek '{plugin_dir}' nie istnieje")
+    if not os.path.exists(module_dir):
+        raise FileNotFoundError(f"Katalog modułów '{module_dir}' nie istnieje")
     
     # Iteracja po wszystkich plikach .py w katalogu
-    for filename in os.listdir(plugin_dir):
+    for filename in os.listdir(module_dir):
         if filename.endswith('.py') and not filename.startswith('__'):
             module_name = filename[:-3]  # Usunięcie rozszerzenia .py
             try:
                 # Dynamiczny import modułu
-                importlib.import_module(f"{plugin_dir.replace('/', '.')}.{module_name}")
+                importlib.import_module(f"{module_dir.replace('/', '.')}.{module_name}")
             except ImportError as e:
-                print(f"Błąd podczas ładowania wtyczki {module_name}: {str(e)}")
+                print(f"Błąd podczas ładowania modułu {module_name}: {str(e)}")
                 raise

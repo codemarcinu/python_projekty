@@ -1,11 +1,11 @@
 """
-Plugin do zarządzania zadaniami w asystencie AI.
+Moduł do zarządzania zadaniami w asystencie AI.
 Zapewnia funkcjonalność dodawania, wyświetlania, oznaczania jako wykonane i usuwania zadań w bazie danych.
 """
 
 import sqlite3
 from typing import List, Tuple
-from core.plugin_system import tool
+from core.module_system import tool
 from core.database import DATABASE_FILE, get_db_connection
 
 @tool

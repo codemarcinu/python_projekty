@@ -4,7 +4,29 @@ do walidacji argumentów przekazywanych do narzędzi przez AI.
 """
 
 from pydantic import BaseModel, Field
-from typing import List, Union
+from typing import List, Union, Protocol, runtime_checkable
+
+@runtime_checkable
+class BaseTool(Protocol):
+    """
+    Bazowy protokół dla wszystkich narzędzi w systemie.
+    
+    Każde narzędzie musi implementować:
+    - name: nazwę narzędzia
+    - description: opis funkcjonalności narzędzia
+    - execute: metodę wykonującą akcję narzędzia
+    """
+    name: str
+    description: str
+    
+    def execute(self, *args, **kwargs) -> str:
+        """
+        Wykonuje akcję narzędzia.
+        
+        Returns:
+            str: Wynik wykonania narzędzia
+        """
+        ...
 
 class WeatherArgs(BaseModel):
     city: str = Field(..., description="Nazwa miasta, dla którego ma być sprawdzona pogoda.")

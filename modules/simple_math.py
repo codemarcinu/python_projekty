@@ -1,4 +1,4 @@
-from core.plugin_system import tool
+from core.module_system import tool
 
 @tool
 def add(a: int, b: int) -> int:

@@ -7,23 +7,28 @@ z systemem wtyczek, umożliwiając agentowi wykonywanie zadań i odpowiadanie u�
 
 import json
 import inspect
-from pydantic import ValidationError
-from .llm_manager import LLMManager
-from .plugin_system import load_plugins, get_tool, _tools
-from .tool_models import WeatherArgs, AddTaskArgs, ListTasksArgs, TaskIdArgs, MathArgs
 from typing import List, Dict, Any
+from pydantic import ValidationError
+
+from langchain.chains import LLMChain
+from langchain.prompts import PromptTemplate
+from langchain.memory import ConversationBufferMemory
+from langchain.schema import HumanMessage, AIMessage
+
+from .llm_manager import LLMManager
+from .module_system import load_modules, get_tool, _tools
+from .tool_models import WeatherArgs, AddTaskArgs, ListTasksArgs, TaskIdArgs, MathArgs
 
 
 class AIEngine:
     """
     Główny silnik AI, działający w oparciu o architekturę "Routera Narzędzi".
-    Najpierw decyduje, czy użyć narzędzia, a dopiero potem wykonuje akcję.
+    Wykorzystuje LangChain do zarządzania konwersacją i routingiem narzędzi.
     """
 
     def __init__(self):
-        load_plugins("plugins")
+        load_modules("modules")
         self.tools_description = self._get_formatted_tools_description()
-        # NOWA MAPA MODELI DO WALIDACJI
         self.tool_arg_models = {
             "get_current_weather": WeatherArgs,
             "add_task": AddTaskArgs,
@@ -33,8 +38,61 @@ class AIEngine:
             "add": MathArgs,
             "multiply": MathArgs,
         }
+        
+        # Inicjalizacja komponentów LangChain
         self.llm = LLMManager()
-        print("AI Engine (v1.1 with Pydantic Validation) has been initialized.")
+        self.memory = ConversationBufferMemory(
+            memory_key="history",
+            return_messages=True,
+            output_key="output"
+        )
+        
+        # Szablon promptu dla głównego łańcucha
+        self.main_prompt = PromptTemplate(
+            input_variables=["history", "input", "tools"],
+            template="""Jesteś pomocnym asystentem AI. Masz dostęp do następujących narzędzi:
+
+{tools}
+
+Historia konwersacji:
+{history}
+
+Użytkownik: {input}
+Asystent:"""
+        )
+        
+        # Główny łańcuch LangChain
+        self.chain = LLMChain(
+            llm=self.llm.get_langchain_llm(),
+            prompt=self.main_prompt,
+            memory=self.memory,
+            verbose=True
+        )
+        
+        # Szablon promptu dla routera narzędzi
+        self.router_prompt = PromptTemplate(
+            input_variables=["history", "tools"],
+            template="""Twoim zadaniem jest wybór odpowiedniego narzędzia na podstawie ostatniej wiadomości użytkownika.
+
+Dostępne narzędzia:
+{tools}
+
+Historia konwersacji:
+{history}
+
+Na podstawie OSTATNIEJ wiadomości użytkownika, które narzędzie powinno być użyte? 
+Odpowiedz jednym słowem: nazwą narzędzia lub "None".
+Narzędzie:"""
+        )
+        
+        # Łańcuch dla routera narzędzi
+        self.router_chain = LLMChain(
+            llm=self.llm.get_langchain_llm(),
+            prompt=self.router_prompt,
+            verbose=True
+        )
+        
+        print("AI Engine (v2.0 with LangChain) has been initialized.")
 
     def _get_formatted_tools_description(self) -> str:
         """Tworzy opis narzędzi dla promptu routera."""
@@ -45,36 +103,33 @@ class AIEngine:
         return "\n".join(descriptions)
 
     def _choose_tool(self, conversation_history: List[Dict[str, str]]) -> str:
-        tool_names = ", ".join(_tools.keys())
+        """Wybiera odpowiednie narzędzie na podstawie kontekstu konwersacji."""
+        # Konwertuj historię do formatu LangChain
+        langchain_history = "\n".join([
+            f"{'Human' if msg['role'] == 'user' else 'AI'}: {msg['content']}"
+            for msg in conversation_history[-4:]
+        ])
         
-        # Formatuj ostatnie 4 wiadomości jako kontekst
-        recent_history = "\n".join([f"{msg['role']}: {msg['content']}" for msg in conversation_history[-4:]])
-
-        prompt = f"""Your task is to choose a tool based on the user's last message in the context of the recent conversation.
-
-        Available Tools:
-        {self.tools_description}
-        ---
-        Recent Conversation History:
-        {recent_history}
-        ---
-
-        Based on the LAST user message, which tool should be used? Respond with a single word: the name of the tool or "None".
-        Tool:"""
-
-        response = self.llm.generate_response([{'role': 'user', 'content': prompt}])
+        response = self.router_chain.predict(
+            history=langchain_history,
+            tools=self.tools_description
+        )
+        
         response_lower = response.lower().strip().replace('"', '').replace("'", "").replace(".", "")
-
+        
         for tool_name in _tools:
             if tool_name.lower() in response_lower:
                 print(f"DEBUG: Router chose tool: {tool_name}")
                 return tool_name
-
+        
         print(f"DEBUG: Router chose no tool (AI response: '{response}')")
         return "None"
 
     def _get_tool_args(self, tool_name: str, conversation_history: List[Dict[str, str]]) -> Dict[str, Any]:
+        """Ekstrahuje argumenty dla wybranego narzędzia z kontekstu konwersacji."""
         user_prompt = conversation_history[-1]['content']
+        
+        # Obsługa specjalnych przypadków dla zadań
         if tool_name in ["complete_task", "delete_task"] and any(word in user_prompt.lower() for word in ["wszystkie", "wszystko", "każde", "all"]):
             print("DEBUG: Wykryto polecenie masowe. Pobieram wszystkie ID zadań.")
             all_tasks_str = get_tool("list_tasks")()
@@ -100,7 +155,6 @@ class AIEngine:
         
         response = self.llm.generate_response([{'role': 'user', 'content': prompt}])
         try:
-            # Find the first { and last } in the response
             start_idx = response.find('{')
             end_idx = response.rfind('}') + 1
             if start_idx == -1 or end_idx == 0:
@@ -116,6 +170,7 @@ class AIEngine:
             return {}
 
     def process_turn(self, conversation_history: List[Dict[str, str]]) -> str:
+        """Przetwarza pojedynczą turę konwersacji, wybierając i wykonując odpowiednie narzędzie."""
         user_prompt = conversation_history[-1]['content']
         chosen_tool_name = self._choose_tool(conversation_history)
 
@@ -127,7 +182,6 @@ class AIEngine:
             if model_class:
                 extracted_args = self._get_tool_args(chosen_tool_name, conversation_history)
                 try:
-                    # NOWA LOGIKA WALIDACJI
                     validated_args = model_class(**extracted_args)
                     tool_args = validated_args.model_dump()
                     print(f"DEBUG: Validated arguments: {tool_args}")
@@ -143,4 +197,8 @@ class AIEngine:
             except Exception as e:
                 return f"Error while executing tool {chosen_tool_name}: {e}"
         else:
-            return self.llm.generate_response(conversation_history)
+            # Użyj głównego łańcucha LangChain dla odpowiedzi
+            return self.chain.predict(
+                input=user_prompt,
+                tools=self.tools_description
+            )
