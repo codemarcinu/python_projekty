@@ -205,8 +205,53 @@ Narzędzie:"""
             print(f"ERROR details: {str(e)}")
             return {}
 
+    def _safe_call_tool(self, tool: Union[Callable, BaseTool], tool_args: Dict[str, Any]) -> Any:
+        """
+        Bezpiecznie wywołuje narzędzie, filtrując argumenty zgodnie z jego sygnaturą.
+        
+        Args:
+            tool: Narzędzie do wywołania (funkcja lub instancja BaseTool)
+            tool_args: Słownik argumentów do przekazania do narzędzia
+            
+        Returns:
+            Any: Wynik wykonania narzędzia
+            
+        Raises:
+            TypeError: Jeśli nie można wywołać narzędzia z podanymi argumentami
+        """
+        try:
+            if isinstance(tool, BaseTool):
+                # Dla narzędzi opartych na klasach, używamy metody execute
+                return tool.execute(**tool_args)
+            
+            # Dla funkcji, sprawdzamy jej sygnaturę
+            if not callable(tool):
+                raise TypeError(f"Narzędzie nie jest wywoływalne: {type(tool)}")
+                
+            sig = inspect.signature(tool)
+            valid_args = {}
+            
+            # Filtrujemy argumenty, zachowując tylko te, które są akceptowane przez funkcję
+            for param_name, param in sig.parameters.items():
+                if param_name in tool_args:
+                    valid_args[param_name] = tool_args[param_name]
+            
+            return tool(**valid_args)
+            
+        except TypeError as e:
+            print(f"ERROR: Błąd podczas wywoływania narzędzia: {str(e)}")
+            raise
+
     def process_turn(self, conversation_history: List[Dict[str, str]]) -> str:
-        """Przetwarza pojedynczą turę konwersacji, wybierając i wykonując odpowiednie narzędzie."""
+        """
+        Przetwarza pojedynczą turę konwersacji, wybierając i wykonując odpowiednie narzędzie.
+        
+        Args:
+            conversation_history: Lista słowników zawierających historię konwersacji
+            
+        Returns:
+            str: Odpowiedź asystenta
+        """
         user_prompt = conversation_history[-1]['content']
         chosen_tool_name = self._choose_tool(conversation_history)
 
@@ -227,12 +272,8 @@ Narzędzie:"""
                 tool_args = self._get_tool_args(chosen_tool_name, conversation_history)
             
             try:
-                if isinstance(tool, BaseTool):
-                    # Dla narzędzi opartych na klasach, używamy metody execute
-                    tool_result = tool.execute(**tool_args)
-                else:
-                    # Dla funkcji z dekoratorem @tool, wywołujemy je bezpośrednio
-                    tool_result = tool(**tool_args)
+                # Używamy nowej metody _safe_call_tool do bezpiecznego wywołania narzędzia
+                tool_result = self._safe_call_tool(tool, tool_args)
                     
                 final_response_prompt = f"""You are a helpful assistant. A tool has just been executed...
                 Tool's result: "{tool_result}"
@@ -242,20 +283,23 @@ Narzędzie:"""
                 return f"Error while executing tool {chosen_tool_name}: {e}"
         else:
             # Użyj głównego łańcucha LangChain dla odpowiedzi
-            return self.chain.predict(
-                input=user_prompt,
-                tools=self.tools_description
-            )
+            # Tworzymy czysty słownik z tylko wymaganymi kluczami
+            chain_input = {
+                'input': user_prompt,
+                'history': self.memory.buffer,
+                'tools': self.tools_description
+            }
+            return self.chain.predict(**chain_input)
 
     async def process_turn_stream(self, conversation_history: List[Dict[str, str]]) -> AsyncGenerator[str, None]:
         """
-        Asynchroniczna wersja process_turn, która strumieniuje odpowiedź token po tokenie.
+        Asynchroniczna wersja process_turn, która zwraca strumień odpowiedzi.
         
         Args:
-            conversation_history (List[Dict[str, str]]): Historia konwersacji.
+            conversation_history: Lista słowników zawierających historię konwersacji
             
         Yields:
-            str: Pojedynczy token odpowiedzi.
+            str: Fragmenty odpowiedzi asystenta
         """
         user_prompt = conversation_history[-1]['content']
         chosen_tool_name = self._choose_tool(conversation_history)
@@ -270,40 +314,33 @@ Narzędzie:"""
                 try:
                     validated_args = model_class(**extracted_args)
                     tool_args = validated_args.model_dump()
-                    print(f"DEBUG: Validated arguments: {tool_args}")
                 except ValidationError as e:
-                    error_msg = f"Błąd Walidacji Danych dla narzędzia '{chosen_tool_name}':\n{e}"
-                    yield error_msg
+                    yield f"Błąd Walidacji Danych dla narzędzia '{chosen_tool_name}':\n{e}"
                     return
             else:
                 tool_args = self._get_tool_args(chosen_tool_name, conversation_history)
             
             try:
-                # Wykonujemy narzędzie i pobieramy wynik
-                if isinstance(tool, BaseTool):
-                    # Dla narzędzi implementujących protokół BaseTool
-                    tool_result = tool.execute(**tool_args)
-                elif callable(tool):
-                    # Dla funkcji z dekoratorem @tool
-                    tool_result = tool(**tool_args)
-                else:
-                    raise TypeError(f"Narzędzie '{chosen_tool_name}' nie jest ani BaseTool, ani funkcją")
+                # Używamy nowej metody _safe_call_tool do bezpiecznego wywołania narzędzia
+                tool_result = self._safe_call_tool(tool, tool_args)
                     
                 final_response_prompt = f"""You are a helpful assistant. A tool has just been executed...
                 Tool's result: "{tool_result}"
                 Based on the tool's result, formulate a brief, natural, and helpful response to the user in Polish."""
                 
-                # Strumieniujemy odpowiedź token po tokenie
-                async for token in self.llm.generate_response_stream([{'role': 'user', 'content': final_response_prompt}]):
-                    yield token
-                    
+                async for chunk in self.llm.generate_response_stream([{'role': 'user', 'content': final_response_prompt}]):
+                    yield chunk
             except Exception as e:
-                error_msg = f"Error while executing tool {chosen_tool_name}: {e}"
-                yield error_msg
+                yield f"Error while executing tool {chosen_tool_name}: {e}"
         else:
-            # Używamy strumieniowania dla głównego łańcucha LangChain
-            response = await self.chain.ainvoke({
-                "input": user_prompt,
-                "tools": self.tools_description
-            })
-            yield response["output"]
+            # Użyj głównego łańcucha LangChain dla odpowiedzi
+            # Tworzymy czysty słownik z tylko wymaganymi kluczami
+            chain_input = {
+                'input': user_prompt,
+                'history': self.memory.buffer,
+                'tools': self.tools_description
+            }
+            
+            # Dla wersji strumieniowej, używamy odpowiedniej metody z LLM
+            async for chunk in self.llm.generate_response_stream([{'role': 'user', 'content': user_prompt}]):
+                yield chunk
