@@ -83,7 +83,70 @@
     </div>
 
     <script>
-        // Tutaj w następnym kroku dodamy nasz kod JavaScript
+        const chatBox = document.getElementById('chat-box');
+        const userInput = document.getElementById('user-input');
+        const sendButton = document.getElementById('send-button');
+
+        // Przechowujemy historię rozmowy po stronie przeglądarki
+        let conversationHistory = [];
+
+        // Funkcja do dodawania wiadomości do okna czatu
+        function addMessageToChat(text, sender) {
+            const messageElement = document.createElement('div');
+            messageElement.classList.add('message', sender === 'user' ? 'user-message' : 'assistant-message');
+            messageElement.textContent = text;
+            chatBox.appendChild(messageElement);
+            // Automatycznie przewijaj na dół
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        // Asynchroniczna funkcja do wysyłania wiadomości do naszego API
+        async function sendMessage() {
+            const prompt = userInput.value.trim();
+            if (!prompt) return; // Nie wysyłaj pustych wiadomości
+
+            // Dodaj wiadomość użytkownika do interfejsu
+            addMessageToChat(prompt, 'user');
+            userInput.value = ''; // Wyczyść pole do wpisywania
+
+            try {
+                // Wyślij zapytanie do naszego API
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        prompt: prompt,
+                        history: conversationHistory
+                    }),
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+
+                // Zaktualizuj historię i dodaj odpowiedź asystenta do interfejsu
+                conversationHistory = data.history;
+                addMessageToChat(data.reply, 'assistant');
+
+            } catch (error) {
+                console.error('Błąd podczas komunikacji z API:', error);
+                addMessageToChat('Przepraszam, wystąpił błąd komunikacji z serwerem.', 'assistant');
+            }
+        }
+
+        // Nasłuchuj na kliknięcie przycisku "Wyślij"
+        sendButton.addEventListener('click', sendMessage);
+
+        // Nasłuchuj na wciśnięcie klawisza "Enter" w polu tekstowym
+        userInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
+        });
     </script>
 </body>
 </html> 
