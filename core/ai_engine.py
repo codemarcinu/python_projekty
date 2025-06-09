@@ -7,8 +7,10 @@ z systemem wtyczek, umożliwiając agentowi wykonywanie zadań i odpowiadanie u�
 
 import json
 import inspect
+from pydantic import ValidationError
 from .llm_manager import LLMManager
 from .plugin_system import load_plugins, get_tool, _tools
+from .tool_models import WeatherArgs, AddTaskArgs, ListTasksArgs, TaskIdArgs, MathArgs
 from typing import List, Dict, Any
 
 
@@ -22,6 +24,16 @@ class AIEngine:
         load_plugins("plugins")
         self.tools_description = self._get_formatted_tools_description()
         self.llm = LLMManager()
+        # Mapa modeli argumentów dla narzędzi
+        self.tool_arg_models = {
+            "get_current_weather": WeatherArgs,
+            "add_task": AddTaskArgs,
+            "list_tasks": ListTasksArgs,
+            "complete_task": TaskIdArgs,
+            "delete_task": TaskIdArgs,
+            "add": MathArgs,
+            "multiply": MathArgs,
+        }
         print("AI Engine (Router - English Prompts) has been initialized.")
 
     def _get_formatted_tools_description(self) -> str:
@@ -86,19 +98,23 @@ class AIEngine:
         # ETAP 2: WYKONANIE LUB ROZMOWA
         if chosen_tool_name != "None":
             tool_function = get_tool(chosen_tool_name)
-            # Sprawdź, czy funkcja wymaga argumentów
-            if inspect.signature(tool_function).parameters:
-                tool_args = self._get_tool_args(chosen_tool_name, user_prompt)
-            else:
-                tool_args = {} # Puste argumenty dla funkcji bezargumentowych
-                print(f"DEBUG: Narzędzie '{chosen_tool_name}' nie wymaga argumentów.")
+            model_class = self.tool_arg_models.get(chosen_tool_name)
+
+            tool_args = {}
+            if model_class:  # Jeśli narzędzie ma zdefiniowany model argumentów
+                extracted_args = self._get_tool_args(chosen_tool_name, user_prompt)
+                try:
+                    # Walidacja za pomocą Pydantic
+                    validated_args = model_class(**extracted_args)
+                    tool_args = validated_args.model_dump()
+                except ValidationError as e:
+                    return f"Błąd walidacji argumentów dla narzędzia '{chosen_tool_name}':\n{e}"
 
             try:
                 result = tool_function(**tool_args)
-                # Zwracamy wynik bezpośrednio, zgodnie z naszą "poprawką na dyscyplinę"
                 return str(result)
             except Exception as e:
-                return f"Error while executing tool {chosen_tool_name}: {e}"
+                return f"Błąd podczas wykonywania narzędzia {chosen_tool_name}: {e}"
         else:
             # Jeśli żadne narzędzie nie zostało wybrane, prowadź normalną rozmowę
             return self.llm.generate_response(conversation_history)
