@@ -86,7 +86,7 @@ class AIEngine:
         if chosen_tool_name != "None":
             tool_function = get_tool(chosen_tool_name)
             # Sprawdź, czy funkcja wymaga argumentów
-            if inspect.getfullargspec(tool_function).args:
+            if inspect.signature(tool_function).parameters:
                 tool_args = self._get_tool_args(chosen_tool_name, user_prompt)
             else:
                 tool_args = {} # Puste argumenty dla funkcji bezargumentowych
