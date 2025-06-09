@@ -9,6 +9,7 @@ Ten moduł zawiera implementację klasy RAGManager, która odpowiada za:
 
 from pathlib import Path
 from typing import Optional, List, Union
+import logging
 
 from langchain_community.embeddings import OllamaEmbeddings
 from langchain_community.vectorstores import FAISS
@@ -17,6 +18,8 @@ from langchain_community.document_loaders import PyPDFLoader, TextLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
+
+logger = logging.getLogger(__name__)
 
 class RAGManager:
     """Klasa zarządzająca systemem RAG (Retrieval-Augmented Generation).
@@ -35,129 +38,79 @@ class RAGManager:
         """Inicjalizuje menedżera RAG.
         
         Args:
-            config: Menedżer konfiguracji aplikacji, zawierający ustawienia
-                          dla modelu embeddingów i innych parametrów RAG.
+            config: Konfiguracja RAG zawierająca ustawienia dla embeddingów i indeksu.
         """
-        self.config = config
-        
         # Inicjalizacja modelu embeddingów z konfiguracji
-        self.embeddings: Embeddings = OllamaEmbeddings(
+        self.embeddings = OllamaEmbeddings(
+            base_url=config.llm.ollama_host,
             model=config.embedding_model
         )
         
         # Ścieżka do przechowywania indeksu wektorowego
-        self.index_path = Path("data/vector_store")
+        self.index_path = config.index_path
         self.index_path.mkdir(parents=True, exist_ok=True)
         
         # Inicjalizacja magazynu wektorowego
-        self.vector_store: Optional[FAISS] = None
-        
-        # Próba załadowania istniejącego magazynu
-        self.load_store()
+        self.vector_store = self._load_or_create_index()
     
-    def load_store(self) -> None:
-        """Ładuje istniejący magazyn wektorowy lub przygotowuje nowy.
-        
-        Metoda sprawdza, czy w zdefiniowanej ścieżce istnieje już zapisany indeks FAISS.
-        Jeśli tak, ładuje go do self.vector_store. W przeciwnym razie przygotowuje
-        system do utworzenia nowego magazynu przy dodaniu pierwszego dokumentu.
-        """
-        index_file = self.index_path / "index.faiss"
-        
-        if index_file.exists():
-            try:
-                self.vector_store = FAISS.load_local(
-                    folder_path=str(self.index_path),
-                    embeddings=self.embeddings
+    def _load_or_create_index(self):
+        """Ładuje istniejący indeks lub tworzy nowy."""
+        try:
+            if self.index_path.exists():
+                return FAISS.load_local(
+                    str(self.index_path),
+                    self.embeddings,
+                    allow_dangerous_deserialization=True
                 )
-                print("Załadowano istniejący magazyn wektorowy.")
-            except Exception as e:
-                print(f"Błąd podczas ładowania magazynu wektorowego: {e}")
-                self.vector_store = None
+            else:
+                return self._create_empty_index()
+        except Exception as e:
+            logger.error(f"Błąd podczas ładowania magazynu wektorowego: {e}")
+            return self._create_empty_index()
+            
+    def _create_empty_index(self):
+        """Tworzy pusty indeks z przykładowym tekstem."""
+        return FAISS.from_texts(
+            ["Witaj w bazie wiedzy!"],
+            self.embeddings
+        )
+    
+    def _get_loader(self, file_path: str):
+        """Zwraca odpowiedni loader dla typu pliku."""
+        ext = Path(file_path).suffix.lower()
+        if ext == '.pdf':
+            return PyPDFLoader(file_path)
+        elif ext in ['.txt', '.md']:
+            return TextLoader(file_path)
         else:
-            print("Magazyn wektorowy nie istnieje. Zostanie utworzony przy dodaniu pierwszego dokumentu.")
-            self.vector_store = None
-
-    def add_document(self, file_path: Union[str, Path]) -> None:
-        """Dodaje nowy dokument do bazy wektorowej.
-        
-        Metoda obsługuje cały proces od wczytania pliku po zapisanie go w bazie wektorowej FAISS.
-        Wspiera pliki PDF i TXT. Dokument jest dzielony na mniejsze fragmenty, które są
-        następnie dodawane do bazy wektorowej.
+            raise ValueError(f"Nieobsługiwany typ pliku: {ext}")
+            
+    def add_document(self, file_path: str) -> bool:
+        """Dodaje dokument do bazy wiedzy.
         
         Args:
-            file_path: Ścieżka do pliku, który ma zostać dodany do bazy.
-                      Może być stringiem lub obiektem Path.
+            file_path: Ścieżka do pliku do dodania.
             
-        Raises:
-            ValueError: Jeśli typ pliku nie jest wspierany (tylko .pdf i .txt).
-            FileNotFoundError: Jeśli plik nie istnieje.
-            Exception: W przypadku innych błędów podczas przetwarzania.
+        Returns:
+            bool: True jeśli dokument został dodany pomyślnie, False w przeciwnym razie.
         """
         try:
-            # Konwersja ścieżki na obiekt Path i sprawdzenie istnienia pliku
-            file_path = Path(file_path)
-            if not file_path.exists():
-                raise FileNotFoundError(f"Plik nie istnieje: {file_path}")
+            loader = self._get_loader(file_path)
+            documents = loader.load()
             
-            print(f"Przetwarzanie pliku: {file_path}")
-            
-            # Wybór odpowiedniego loadera na podstawie rozszerzenia
-            if file_path.suffix.lower() == '.pdf':
-                loader = PyPDFLoader(str(file_path))
-            elif file_path.suffix.lower() == '.txt':
-                loader = TextLoader(str(file_path))
-            else:
-                raise ValueError(f"Nieobsługiwany typ pliku: {file_path.suffix}. Wspierane formaty: .pdf, .txt")
-            
-            # Ładowanie dokumentu
-            documents: List[Document] = loader.load()
-            print(f"Zaladowano dokument: {len(documents)} stron/fragmentów")
-            
-            # Konfiguracja i użycie splittera do podziału na mniejsze fragmenty
             text_splitter = RecursiveCharacterTextSplitter(
                 chunk_size=1000,
-                chunk_overlap=200,
-                length_function=len,
-                is_separator_regex=False
+                chunk_overlap=200
             )
+            splits = text_splitter.split_documents(documents)
             
-            chunks = text_splitter.split_documents(documents)
-            print(f"Podzielono na {len(chunks)} fragmentów")
-            
-            # Dodanie metadanych o pochodzeniu do każdego fragmentu
-            source_filename = file_path.name
-            for chunk in chunks:
-                if chunk.metadata is None:
-                    chunk.metadata = {}
-                chunk.metadata["source_filename"] = source_filename
-            
-            # Dodanie dokumentów do bazy wektorowej
-            if self.vector_store is None:
-                # Tworzenie nowej bazy wektorowej
-                print("Tworzenie nowej bazy wektorowej...")
-                self.vector_store = FAISS.from_documents(
-                    documents=chunks,
-                    embedding=self.embeddings
-                )
-            else:
-                # Dodanie do istniejącej bazy
-                print("Dodawanie do istniejącej bazy wektorowej...")
-                self.vector_store.add_documents(chunks)
-            
-            # Zapisanie zaktualizowanej bazy na dysku
-            if self.vector_store is not None:  # Dodatkowe sprawdzenie dla mypy
-                self.vector_store.save_local(self.index_path)
-                print("Baza wektorowa zapisana pomyślnie.")
-            
-        except (ValueError, FileNotFoundError) as e:
-            # Przekazanie błędów walidacji i braku pliku
-            raise
+            self.vector_store.add_documents(splits)
+            self.vector_store.save_local(str(self.index_path))
+            return True
         except Exception as e:
-            # Obsługa innych błędów
-            print(f"Wystąpił błąd podczas przetwarzania dokumentu: {e}")
-            raise 
-
+            logger.error(f"Błąd podczas dodawania dokumentu: {e}")
+            return False
+    
     def get_retriever(self) -> Optional[BaseRetriever]:
         """Zwraca retriever do wyszukiwania dokumentów w bazie wektorowej.
         
@@ -265,7 +218,7 @@ class RAGManager:
             self.vector_store.delete(ids_to_delete)
             
             # Zapisanie zmian na dysku
-            self.vector_store.save_local(self.index_path)
+            self.vector_store.save_local(str(self.index_path))
             
             # Usunięcie oryginalnego pliku
             file_path = Path("data/uploads") / filename_to_delete
@@ -299,3 +252,19 @@ class RAGManager:
                  Jeśli baza jest pusta lub nie istnieje, zwraca 0.
         """
         return len(self.list_documents()) 
+
+    def search(self, query: str, k: int = 4) -> List[Document]:
+        """Wyszukuje podobne dokumenty.
+        
+        Args:
+            query: Zapytanie do wyszukania.
+            k: Liczba wyników do zwrócenia.
+            
+        Returns:
+            List[Document]: Lista znalezionych dokumentów.
+        """
+        try:
+            return self.vector_store.similarity_search(query, k=k)
+        except Exception as e:
+            logger.error(f"Błąd podczas wyszukiwania: {e}")
+            return [] 
