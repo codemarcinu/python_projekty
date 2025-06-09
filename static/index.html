@@ -133,6 +133,85 @@
             background-color: #dc3545;
             color: white;
         }
+        
+        /* Style dla sekcji bazy wiedzy */
+        #knowledge-base {
+            width: 90%;
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+            background-color: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        
+        #knowledge-base h2 {
+            color: #2c3e50;
+            margin-bottom: 20px;
+            font-size: 1.5em;
+        }
+        
+        #upload-form {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        
+        .file-input-container {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        #file-input {
+            flex-grow: 1;
+            padding: 8px;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+        
+        #upload-button {
+            padding: 12px 24px;
+            border: none;
+            background-color: #28a745;
+            color: white;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: background-color 0.2s;
+        }
+        
+        #upload-button:hover {
+            background-color: #218838;
+        }
+        
+        #upload-status {
+            margin-top: 12px;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 14px;
+            display: none;
+        }
+        
+        .status-success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .status-error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .status-loading {
+            background-color: #e2e3e5;
+            color: #383d41;
+            border: 1px solid #d6d8db;
+        }
     </style>
 </head>
 <body>
@@ -145,6 +224,17 @@
             <input type="text" id="user-input" placeholder="Wpisz wiadomość..." autocomplete="off">
             <button id="send-button">Wyślij</button>
         </div>
+    </div>
+
+    <div id="knowledge-base">
+        <h2>Baza Wiedzy</h2>
+        <form id="upload-form">
+            <div class="file-input-container">
+                <input type="file" id="file-input" name="file" accept=".pdf,.txt" required>
+                <button type="submit" id="upload-button">Dodaj dokument do bazy</button>
+            </div>
+            <div id="upload-status"></div>
+        </form>
     </div>
 
     <script>
@@ -237,6 +327,70 @@
 
         // Inicjalizacja połączenia WebSocket
         connectWebSocket();
+
+        // Obsługa formularza przesyłania dokumentów
+        const uploadForm = document.getElementById('upload-form');
+        const fileInput = document.getElementById('file-input');
+        const uploadStatus = document.getElementById('upload-status');
+        
+        uploadForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            
+            const file = fileInput.files[0];
+            if (!file) {
+                showUploadStatus('Wybierz plik do przesłania.', 'error');
+                return;
+            }
+            
+            // Sprawdzenie rozszerzenia pliku
+            const fileExt = file.name.split('.').pop().toLowerCase();
+            if (!['pdf', 'txt'].includes(fileExt)) {
+                showUploadStatus('Nieobsługiwany typ pliku. Wspierane formaty: .pdf, .txt', 'error');
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            showUploadStatus('Przesyłanie pliku...', 'loading');
+            
+            try {
+                const response = await fetch('/upload-document/', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    showUploadStatus(result.message, 'success');
+                    fileInput.value = ''; // Wyczyść pole wyboru pliku
+                } else {
+                    showUploadStatus(result.detail || 'Wystąpił błąd podczas przesyłania pliku.', 'error');
+                }
+            } catch (error) {
+                showUploadStatus('Wystąpił błąd podczas komunikacji z serwerem.', 'error');
+                console.error('Błąd przesyłania pliku:', error);
+            }
+        });
+        
+        function showUploadStatus(message, type) {
+            uploadStatus.textContent = message;
+            uploadStatus.style.display = 'block';
+            
+            // Usuń wszystkie klasy statusu
+            uploadStatus.classList.remove('status-success', 'status-error', 'status-loading');
+            
+            // Dodaj odpowiednią klasę
+            uploadStatus.classList.add(`status-${type}`);
+            
+            // Ukryj komunikat po 5 sekundach (tylko dla sukcesu)
+            if (type === 'success') {
+                setTimeout(() => {
+                    uploadStatus.style.display = 'none';
+                }, 5000);
+            }
+        }
     </script>
 </body>
 </html> 

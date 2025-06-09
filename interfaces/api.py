@@ -3,15 +3,19 @@ Moduł implementujący API REST dla asystenta AI.
 Wykorzystuje FastAPI do obsługi zapytań HTTP oraz WebSocket do komunikacji w czasie rzeczywistym.
 """
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+import os
+import shutil
+from pathlib import Path
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
-from typing import List, Dict, AsyncGenerator
+from typing import List, Dict, AsyncGenerator, Optional
 
 # Importujemy nasz gotowy silnik AI i menedżera konwersacji
 from core.ai_engine import AIEngine
 from core.conversation_handler import ConversationHandler
+from core.config_manager import ConfigManager
 
 # --- Definicja modeli danych (co przyjmujemy i co zwracamy) ---
 class ChatRequest(BaseModel):
@@ -22,6 +26,10 @@ class ChatResponse(BaseModel):
     reply: str
     history: List[Dict[str, str]]
 
+# --- Konfiguracja katalogów ---
+UPLOADS_DIR = Path("data/uploads")
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+
 # --- Inicjalizacja aplikacji i silnika AI ---
 app = FastAPI(title="Lokalny Asystent AI API")
 
@@ -30,7 +38,8 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Tworzymy jedną, globalną instancję silnika, która będzie używana przez wszystkich
 # To wydajne, bo wtyczki ładują się tylko raz.
-engine = AIEngine()
+config = ConfigManager()
+engine = AIEngine(config)
 
 @app.get("/", response_class=HTMLResponse)
 async def read_index():
@@ -112,3 +121,63 @@ async def websocket_endpoint(websocket: WebSocket):
             pass  # Ignorujemy błędy wysyłania wiadomości o błędzie
         finally:
             await websocket.close()
+
+@app.post("/upload-document/")
+async def upload_document(file: UploadFile = File(...)) -> JSONResponse:
+    """Endpoint do przesyłania dokumentów do systemu RAG.
+    
+    Przyjmuje plik, zapisuje go na serwerze i dodaje do bazy wektorowej.
+    Wspiera pliki PDF i TXT.
+    
+    Args:
+        file: Przesłany plik (tylko PDF lub TXT)
+        
+    Returns:
+        JSONResponse: Informacja o statusie operacji
+        
+    Raises:
+        HTTPException: W przypadku błędów podczas przetwarzania pliku
+    """
+    try:
+        if not file.filename:
+            raise HTTPException(
+                status_code=400,
+                detail="Brak nazwy pliku"
+            )
+            
+        # Sprawdzenie rozszerzenia pliku
+        file_ext = Path(file.filename).suffix.lower()
+        if file_ext not in ['.pdf', '.txt']:
+            raise HTTPException(
+                status_code=400,
+                detail="Nieobsługiwany typ pliku. Wspierane formaty: .pdf, .txt"
+            )
+        
+        # Tworzenie pełnej ścieżki do zapisu pliku
+        file_path = UPLOADS_DIR / file.filename
+        
+        # Zapisanie pliku na dysku
+        with open(file_path, "wb") as f:
+            shutil.copyfileobj(file.file, f)
+        
+        # Dodanie dokumentu do bazy wektorowej
+        engine.rag_manager.add_document(str(file_path))
+        
+        return JSONResponse(
+            status_code=200,
+            content={
+                "message": f"Plik '{file.filename}' został pomyślnie dodany do bazy wiedzy.",
+                "file_path": str(file_path)
+            }
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        # W przypadku innych błędów, usuwamy plik jeśli został zapisany
+        if 'file_path' in locals() and file_path.exists():
+            file_path.unlink()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Wystąpił błąd podczas przetwarzania pliku: {str(e)}"
+        )
