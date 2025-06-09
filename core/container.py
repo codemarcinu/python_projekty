@@ -1,7 +1,12 @@
+"""
+Moduł implementujący kontener wstrzykiwania zależności dla aplikacji.
+"""
+
 from dependency_injector import containers, providers
+from core.config_manager import ConfigManager
 from core.llm_manager import LLMManager
-from core.ai_engine import AIEngine
 from core.rag_manager import RAGManager
+from core.ai_engine import AIEngine
 from core.config_manager import get_settings
 from dotenv import load_dotenv
 
@@ -9,32 +14,33 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class Container(containers.DeclarativeContainer):
-    """Kontener DI dla aplikacji."""
+    """Kontener wstrzykiwania zależności."""
     
+    # Konfiguracja
     config = providers.Configuration()
     
-    # Konfiguracja z pliku .env
-    config.ollama_host.from_env("OLLAMA_HOST", default="http://localhost:11434")
-    config.ollama_timeout.from_env("OLLAMA_TIMEOUT", default=30)
-    config.primary_model.from_env("PRIMARY_MODEL", default="gemma3:12b")
-    config.document_model.from_env("DOCUMENT_MODEL", default="SpeakLeash/bielik-11b-v2.3-instruct:Q6_K")
-    config.rag_embedding_model.from_env("RAG_EMBEDDING_MODEL", default="all-MiniLM-L6-v2")
+    # Menedżer konfiguracji
+    config_manager = providers.Singleton(
+        ConfigManager,
+        config=config
+    )
     
-    # Dostawcy usług
+    # Menedżer LLM
     llm_manager = providers.Singleton(
         LLMManager,
-        base_url=config.ollama_host,
-        timeout=config.ollama_timeout,
-        model=config.primary_model
+        config=config_manager
     )
     
+    # Menedżer RAG
     rag_manager = providers.Singleton(
         RAGManager,
-        embedding_model=config.rag_embedding_model
+        config=config_manager
     )
     
+    # Silnik AI
     ai_engine = providers.Singleton(
         AIEngine,
         llm_manager=llm_manager,
-        rag_manager=rag_manager
+        rag_manager=rag_manager,
+        config=config_manager
     ) 

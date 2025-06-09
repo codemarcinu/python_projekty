@@ -7,12 +7,10 @@ import os
 import shutil
 from pathlib import Path
 from typing import List, Dict, AsyncGenerator, Optional
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException, Depends
-from fastapi.staticfiles import StaticFiles
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException, Depends
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
-import magic
 import aiofiles
 import asyncio
 from datetime import datetime, timedelta
@@ -47,6 +45,8 @@ ALLOWED_MIME_TYPES = {
 class ChatRequest(BaseModel):
     message: str
     user_id: str
+    model: str = "gemma3:12b"
+    use_rag: bool = True
 
 class RateLimitInfo(BaseModel):
     remaining_requests: int
@@ -96,7 +96,7 @@ class RateLimiter:
 rate_limiter = RateLimiter()
 
 # --- API Setup ---
-app = FastAPI(title="AI Assistant API")
+router = APIRouter()
 
 # --- Security Dependencies ---
 async def verify_api_key(api_key: str = Depends(api_key_header)):
@@ -140,11 +140,9 @@ async def validate_file(file: UploadFile) -> Path:
                     )
                 await temp_file.write(chunk)
         
-        # Check MIME type
-        mime = magic.Magic(mime=True)
-        file_mime = mime.from_file(str(temp_path))
-        
-        if file_mime not in ALLOWED_MIME_TYPES:
+        # Check file extension
+        file_ext = Path(file.filename).suffix.lower()
+        if file_ext not in ALLOWED_MIME_TYPES.values():
             raise HTTPException(
                 status_code=400,
                 detail=f"Unsupported file type. Allowed types: {', '.join(ALLOWED_MIME_TYPES.values())}"
@@ -167,7 +165,7 @@ async def validate_file(file: UploadFile) -> Path:
             temp_path.unlink()
 
 # --- API Endpoints ---
-@app.post("/upload")
+@router.post("/upload")
 async def upload_file(
     file: UploadFile = File(...),
     api_key: str = Depends(verify_api_key)
@@ -179,7 +177,7 @@ async def upload_file(
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.post("/chat")
+@router.post("/chat")
 async def chat(
     request: ChatRequest,
     api_key: str = Depends(verify_api_key)
@@ -188,20 +186,16 @@ async def chat(
     await check_rate_limit(request.user_id)
     
     try:
-        # Get or create conversation
-        conversation = conversation_manager.get_conversation(request.user_id)
-        if not conversation:
-            conversation = conversation_manager.create_conversation(request.user_id)
-        
         response = await ai_engine.process_message(
-            conversation=conversation,
-            message=request.message
+            message=request.message,
+            model=request.model,
+            use_rag=request.use_rag
         )
         return {"response": response}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/rate-limit")
+@router.get("/rate-limit")
 async def get_rate_limit(
     user_id: str,
     api_key: str = Depends(verify_api_key)
@@ -209,7 +203,7 @@ async def get_rate_limit(
     """Get rate limit information for a user."""
     return rate_limiter.get_rate_limit_info(user_id)
 
-@app.get("/health")
+@router.get("/health")
 async def health_check():
     """Check the health status of the API."""
     return {
@@ -219,23 +213,19 @@ async def health_check():
     }
 
 # --- WebSocket Connection ---
-@app.websocket("/ws/{user_id}")
+@router.websocket("/ws/{user_id}")
 async def websocket_endpoint(websocket: WebSocket, user_id: str):
     await websocket.accept()
     try:
-        # Get or create conversation
-        conversation = conversation_manager.get_conversation(user_id)
-        if not conversation:
-            conversation = conversation_manager.create_conversation(user_id)
-        
         while True:
             message = await websocket.receive_text()
             await check_rate_limit(user_id)
             
             try:
                 response = await ai_engine.process_message(
-                    conversation=conversation,
-                    message=message
+                    message=message,
+                    model="gemma3:12b",
+                    use_rag=True
                 )
                 await websocket.send_text(response)
             except Exception as e:

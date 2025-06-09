@@ -1,189 +1,93 @@
 """
-LLM Manager for handling language model interactions.
-Provides a unified interface for different LLM providers.
+Moduł zarządzający modelami LLM.
 """
-from typing import Any, Optional, cast
-from datetime import datetime
-import asyncio
+
+import os
 import logging
+from typing import Dict, Any, Optional
 import aiohttp
-from pathlib import Path
+import asyncio
+from core.config_manager import ConfigManager
 
-from langchain_ollama import OllamaLLM
-from langchain_core.language_models import BaseLLM
-from langchain_core.callbacks import CallbackManagerForLLMRun
-
-from .config_manager import get_settings
-from .exceptions import ModelUnavailableError
-
-# Configure logging
 logger = logging.getLogger(__name__)
 
 class LLMManager:
-    """Manager for handling LLM interactions."""
+    """Menedżer modeli LLM."""
     
-    def __init__(self):
-        """Initialize the LLM manager."""
-        self.settings = get_settings()
-        self._llm: Optional[BaseLLM] = None
-        self._last_error_time: Optional[datetime] = None
-        self._error_count = 0
-        self._initialize_llm()
-    
-    def _initialize_llm(self) -> None:
-        """Initialize the LLM with proper configuration."""
-        try:
-            if self.settings.llm.provider.lower() == "ollama":
-                self._llm = OllamaLLM(
-                    model=self.settings.llm.model_name,
-                    base_url=self.settings.llm.ollama_host,
-                    temperature=self.settings.llm.temperature
-                )
-                logger.info(f"Initialized Ollama LLM with model {self.settings.llm.model_name}")
-            else:
-                raise ValueError(f"Unsupported LLM provider: {self.settings.llm.provider}")
-        except Exception as e:
-            logger.error(f"Error initializing LLM: {e}")
-            raise ModelUnavailableError(f"Failed to initialize LLM: {e}")
-    
-    @property
-    def llm(self) -> BaseLLM:
-        """Get the configured LLM instance."""
-        if self._llm is None:
-            self._initialize_llm()
-        return cast(BaseLLM, self._llm)  # We know it's not None after initialization
-    
-    def get_health_status(self) -> dict:
-        """Get the health status of the LLM."""
-        return {
-            "provider": self.settings.llm.provider,
-            "model": self.settings.llm.model_name,
-            "last_error": self._last_error_time.isoformat() if self._last_error_time else None,
-            "error_count": self._error_count,
-            "status": "healthy" if self._llm is not None else "unhealthy"
-        }
-    
-    async def validate_ollama_model(self) -> None:
+    def __init__(self, config: ConfigManager):
         """
-        Validate that Ollama server is running and the required model is available.
-        Raises ModelUnavailableError with a user-friendly message if not.
-        """
-        host = self.settings.llm.ollama_host.rstrip("/")
-        model = self.settings.llm.model_name
-        tags_url = f"{host}/api/tags"
-        
-        try:
-            timeout = aiohttp.ClientTimeout(total=5)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(tags_url) as resp:
-                    if resp.status != 200:
-                        raise ModelUnavailableError(f"Ollama API not available at {host} (status {resp.status})")
-                    data = await resp.json()
-                    available_models = [m['name'] for m in data.get('models', [])]
-                    if model not in available_models:
-                        raise ModelUnavailableError(
-                            f"Model '{model}' is not available in Ollama. Dostępne modele: {', '.join(available_models) if available_models else 'brak'}. "
-                            f"Użyj 'ollama pull {model}' lub zmień PRIMARY_MODEL w .env."
-                        )
-        except aiohttp.ClientError as e:
-            logger.error(f"Ollama validation error: {e}")
-            raise ModelUnavailableError(f"Nie można połączyć z Ollama ({host}). Szczegóły: {e}")
-        except Exception as e:
-            logger.error(f"Unexpected error during Ollama validation: {e}")
-            raise ModelUnavailableError(f"Nieoczekiwany błąd podczas walidacji Ollama: {e}")
-    
-    async def generate(
-        self,
-        prompt: str,
-        system_prompt: Optional[str] = None,
-        max_retries: int = 3,
-        **kwargs: Any
-    ) -> str:
-        """
-        Generate text using the LLM with retry mechanism.
+        Inicjalizuje menedżera LLM.
         
         Args:
-            prompt: The input prompt for generation
-            system_prompt: Optional system prompt to guide the model
-            max_retries: Maximum number of retry attempts
-            **kwargs: Additional arguments to pass to the LLM
+            config: Menedżer konfiguracji
+        """
+        self.config = config
+        self.base_url = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+        self.timeout = int(os.getenv("OLLAMA_TIMEOUT", "30"))
+        self.model = os.getenv("PRIMARY_MODEL", "gemma3:12b")
+        self.session: Optional[aiohttp.ClientSession] = None
+    
+    async def initialize_llm(self):
+        """Inicjalizuje połączenie z modelem LLM."""
+        if self.session is None:
+            self.session = aiohttp.ClientSession(
+                base_url=self.base_url,
+                timeout=aiohttp.ClientTimeout(total=self.timeout)
+            )
+    
+    async def cleanup(self):
+        """Zamyka połączenie z modelem LLM."""
+        if self.session:
+            await self.session.close()
+            self.session = None
+    
+    async def generate(self, prompt: str, model: Optional[str] = None) -> str:
+        """
+        Generuje odpowiedź na podstawie promptu.
+        
+        Args:
+            prompt: Tekst wejściowy
+            model: Opcjonalna nazwa modelu
             
         Returns:
-            Generated text response
+            str: Wygenerowana odpowiedź
             
         Raises:
-            ModelUnavailableError: If model is unavailable after retries
-            asyncio.TimeoutError: If generation takes too long
+            Exception: W przypadku błędu generowania
         """
-        if not prompt or not isinstance(prompt, str):
-            raise ValueError("Prompt must be a non-empty string")
-            
-        full_prompt = f"{system_prompt}\n\n{prompt}" if system_prompt else prompt
+        if not self.session:
+            await self.initialize_llm()
         
-        for attempt in range(max_retries):
-            try:
-                logger.info(f"Attempting generation (attempt {attempt + 1}/{max_retries})")
-                async with asyncio.timeout(self.settings.llm.timeout):
-                    response = await self.llm.agenerate([full_prompt], **kwargs)
-                    self._error_count = 0  # Reset error count on success
-                    return response.generations[0][0].text
-                
-            except asyncio.TimeoutError:
-                logger.error(f"Generation timeout after {self.settings.llm.timeout} seconds")
-                self._last_error_time = datetime.now()
-                self._error_count += 1
-                
-                if attempt == max_retries - 1:
-                    raise ModelUnavailableError(
-                        f"Model timeout after {max_retries} attempts"
-                    )
-                
-                # Exponential backoff
-                wait_time = 2 ** attempt
-                logger.info(f"Retrying in {wait_time} seconds...")
-                await asyncio.sleep(wait_time)
-                
-            except Exception as e:
-                self._last_error_time = datetime.now()
-                self._error_count += 1
-                logger.error(f"Generation error (attempt {attempt + 1}): {str(e)}")
-                
-                if attempt == max_retries - 1:
-                    raise ModelUnavailableError(
-                        f"Model unavailable after {max_retries} attempts. Last error: {str(e)}"
-                    )
-                
-                # Exponential backoff
-                wait_time = 2 ** attempt
-                logger.info(f"Retrying in {wait_time} seconds...")
-                await asyncio.sleep(wait_time)
+        if not self.session:
+            raise Exception("Failed to initialize LLM session")
         
-        # This line should never be reached due to the raise in the loop
-        raise ModelUnavailableError("Unexpected error in generate method")
-
-    async def get_model_status(self) -> dict:
-        """Get the current status of the LLM model.
+        try:
+            async with self.session.post(
+                "/api/generate",
+                json={
+                    "model": model or self.model,
+                    "prompt": prompt,
+                    "stream": False
+                }
+            ) as response:
+                if response.status != 200:
+                    raise Exception(f"Error generating response: {response.status}")
+                
+                result = await response.json()
+                return result.get("response", "")
+                
+        except Exception as e:
+            logger.error(f"Error generating response: {e}")
+            raise
+    
+    def get_health_status(self) -> Dict[str, Any]:
+        """
+        Sprawdza status modelu LLM.
         
         Returns:
-            dict: Dictionary containing model status information:
-                - model: Name of the current model
-                - status: Current status ("online" or "offline")
+            Dict[str, Any]: Status modelu
         """
-        try:
-            await self.validate_ollama_model()
-            return {
-                "model": self.settings.llm.model_name,
-                "status": "online"
-            }
-        except ModelUnavailableError:
-            return {
-                "model": self.settings.llm.model_name,
-                "status": "offline"
-            }
-
-# Create global LLM manager instance
-llm_manager = LLMManager()
-
-def get_llm_manager() -> LLMManager:
-    """Get the global LLM manager instance."""
-    return llm_manager
+        return {
+            "model": self.model,
+            "status": "connected" if self.session else "disconnected"
+        }

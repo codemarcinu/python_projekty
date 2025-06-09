@@ -1,102 +1,64 @@
 """
-Main entry point for the AI Assistant application.
-Handles both CLI and web server modes.
+Główny moduł aplikacji AI Assistant.
+Zawiera punkt wejścia i konfigurację serwera.
 """
-import asyncio
-import logging
-import uvicorn
-from pathlib import Path
-from typing import Optional
 
 import typer
-from rich.console import Console
+import uvicorn
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from interfaces import web_ui, api
 
-from core.rag_manager import RAGManager
-from core.config_manager import get_settings
-from core.llm_manager import get_llm_manager, ModelUnavailableError
-
-# Konfiguracja logowania
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('app.log'),
-        logging.StreamHandler()
-    ]
+# Initialize FastAPI app
+app = FastAPI(
+    title="AI Assistant",
+    description="Asystent AI wykorzystujący lokalne modele LLM",
+    version="1.0.0"
 )
 
-logger = logging.getLogger(__name__)
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"],  # Allows all headers
+)
 
-# Initialize Typer app
-app = typer.Typer(help="AI Assistant")
+# Mount static files
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# Initialize Rich console
-console = Console()
+# Include routers
+app.include_router(web_ui.router, prefix="/web", tags=["web"])
+app.include_router(api.router, prefix="/api", tags=["api"])
 
+# Create Typer app
+cli = typer.Typer()
 
-@app.command()
+@cli.command()
 def serve(
-    host: str = typer.Option(
-        "127.0.0.1",
-        "--host",
-        "-h",
-        help="Host to bind the web server to"
-    ),
-    port: int = typer.Option(
-        8000,
-        "--port",
-        "-p",
-        help="Port to bind the web server to"
-    ),
-    reload: bool = typer.Option(
-        False,
-        "--reload",
-        "-r",
-        help="Enable auto-reload on code changes"
-    )
+    host: str = "0.0.0.0",
+    port: int = 8000,
+    reload: bool = False
 ):
-    """Start the web server."""
-    llm_manager = get_llm_manager()
-    try:
-        asyncio.run(llm_manager.validate_ollama_model())
-    except ModelUnavailableError as e:
-        console.print(f"[bold red]Błąd: {e}[/bold red]")
-        raise typer.Exit(code=1)
-    from interfaces.web_ui import app as web_app
-    console.print(f"[bold blue]Starting web server at http://{host}:{port}[/bold blue]")
+    """
+    Uruchamia serwer FastAPI.
+    
+    Args:
+        host: Host do nasłuchiwania
+        port: Port do nasłuchiwania
+        reload: Czy włączyć auto-reload
+    """
     uvicorn.run(
-        "interfaces.web_ui:app",
+        "main:app",
         host=host,
         port=port,
         reload=reload,
-        log_level="info",
-        ws_max_size=16777216,  # 16MB dla WebSocket
-        ws_ping_interval=20,
-        ws_ping_timeout=20
+        ws_max_size=1024 * 1024 * 10,  # 10MB
+        ws_ping_interval=20.0,
+        ws_ping_timeout=20.0
     )
 
-
-@app.command()
-def cli():
-    """Start the CLI interface."""
-    from interfaces.cli import app as cli_app
-    cli_app()
-
-
-@app.command()
-def init_vector_db():
-    """Inicjalizuje pusty indeks FAISS (baza wiedzy)."""
-    console.print("[bold yellow]Inicjalizacja pustego indeksu FAISS...[/bold yellow]")
-    config = get_settings().rag
-    rag_manager = RAGManager(config)
-    rag_manager.init_empty_index()
-    console.print("[bold green]Indeks FAISS gotowy![/bold green]")
-
-
 if __name__ == "__main__":
-    try:
-        logger.info("Starting AI Assistant server...")
-        app()
-    except Exception as e:
-        logger.error(f"Failed to start server: {e}")
-        raise
+    cli()

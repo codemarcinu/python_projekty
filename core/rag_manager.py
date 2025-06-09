@@ -7,19 +7,14 @@ Ten moduł zawiera implementację klasy RAGManager, która odpowiada za:
 - Integrację z modelami embeddingów
 """
 
-from pathlib import Path
-from typing import Optional, List, Union, Dict, Any
+import os
 import logging
-import asyncio
-
-from langchain_ollama import OllamaEmbeddings
-from langchain_community.vectorstores import FAISS
-from langchain_core.embeddings import Embeddings
-from langchain_community.document_loaders import PyPDFLoader, TextLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_core.documents import Document
-from langchain_core.retrievers import BaseRetriever
+from typing import List, Dict, Any, Optional
+from pathlib import Path
+import faiss
+import numpy as np
 from sentence_transformers import SentenceTransformer
+from core.config_manager import ConfigManager
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +22,7 @@ class RAGError(Exception):
     """Base exception for RAG-related errors."""
     pass
 
-class CustomEmbeddings(Embeddings):
+class CustomEmbeddings:
     """Custom embeddings class using sentence-transformers."""
     
     def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
@@ -76,146 +71,165 @@ class CustomEmbeddings(Embeddings):
             raise RAGError(f"Failed to embed query: {e}")
 
 class RAGManager:
-    """Klasa zarządzająca systemem RAG (Retrieval-Augmented Generation).
+    """Menedżer systemu RAG."""
     
-    Odpowiada za zarządzanie wektorowym magazynem dokumentów, tworzenie i ładowanie
-    indeksów FAISS oraz integrację z modelami embeddingów.
-    
-    Attributes:
-        config: Konfiguracja RAG
-        embeddings: Model do tworzenia wektorów (embeddings)
-        index_path: Ścieżka do przechowywania indeksu wektorowego
-        vector_store: Magazyn wektorowy FAISS
-    """
-    
-    def __init__(self, config):
-        """Inicjalizuje menedżera RAG.
-        
-        Args:
-            config: Konfiguracja RAG zawierająca ustawienia dla embeddingów i indeksu.
-            
-        Raises:
-            RAGError: Jeśli inicjalizacja się nie powiedzie.
+    def __init__(self, config: ConfigManager):
         """
-        try:
-            self.config = config
-            
-            # Inicjalizacja modelu embeddingów
-            try:
-                # Try Ollama embeddings first
-                self.embeddings = OllamaEmbeddings(
-                    base_url=config.base_url,
-                    model=config.embedding_model
-                )
-            except Exception as e:
-                logger.warning(f"Failed to initialize Ollama embeddings: {e}")
-                logger.info("Falling back to sentence-transformers")
-                # Fallback to sentence-transformers
-                self.embeddings = CustomEmbeddings()
-            
-            # Konfiguracja ścieżek
-            self.index_path = config.index_path
-            self.vector_db_path = config.vector_db_path
-            self.upload_dir = config.upload_dir
-            
-            # Utwórz wymagane katalogi
-            self._ensure_directories()
-            
-            # Inicjalizacja text splitter
-            self.text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=config.chunk_size,
-                chunk_overlap=config.chunk_overlap
-            )
-            
-            # Inicjalizacja magazynu wektorowego
-            self.vector_store = self._load_or_create_index()
-            
-            logger.info("RAG Manager initialized successfully")
-            
-        except Exception as e:
-            logger.error(f"Error initializing RAG Manager: {e}")
-            raise RAGError(f"Failed to initialize RAG Manager: {e}")
-    
-    def _ensure_directories(self) -> None:
-        """Ensure required directories exist."""
-        try:
-            self.index_path.mkdir(parents=True, exist_ok=True)
-            self.vector_db_path.mkdir(parents=True, exist_ok=True)
-            self.upload_dir.mkdir(parents=True, exist_ok=True)
-            logger.info("Required directories created/verified")
-        except Exception as e:
-            logger.error(f"Error creating directories: {e}")
-            raise RAGError(f"Failed to create required directories: {e}")
-    
-    def _load_or_create_index(self):
-        """Ładuje istniejący indeks lub tworzy nowy."""
-        try:
-            if self.index_path.exists() and any(self.index_path.iterdir()):
-                return FAISS.load_local(
-                    str(self.index_path),
-                    self.embeddings,
-                    allow_dangerous_deserialization=True
-                )
-            else:
-                return self._create_empty_index()
-        except Exception as e:
-            logger.error(f"Error loading vector store: {e}")
-            return self._create_empty_index()
-            
-    def _create_empty_index(self):
-        """Tworzy pusty indeks."""
-        try:
-            # Dodaj przykładowy tekst zamiast pustej listy
-            return FAISS.from_texts(
-                ["Witaj w bazie wiedzy!"],
-                self.embeddings
-            )
-        except Exception as e:
-            logger.error(f"Error creating empty index: {e}")
-            raise RAGError(f"Failed to create empty index: {e}")
-    
-    def _get_loader(self, file_path: str):
-        """Zwraca odpowiedni loader dla typu pliku."""
-        try:
-            ext = Path(file_path).suffix.lower()
-            if ext == '.pdf':
-                return PyPDFLoader(file_path)
-            elif ext in ['.txt', '.md']:
-                return TextLoader(file_path)
-            else:
-                raise ValueError(f"Unsupported file type: {ext}")
-        except Exception as e:
-            logger.error(f"Error getting document loader: {e}")
-            raise RAGError(f"Failed to get document loader: {e}")
-            
-    async def add_document(self, file_path: str) -> bool:
-        """Dodaje dokument do bazy wiedzy.
+        Inicjalizuje menedżera RAG.
         
         Args:
-            file_path: Ścieżka do pliku do dodania.
+            config: Menedżer konfiguracji
+        """
+        self.config = config
+        self.embedding_model = os.getenv("RAG_EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+        self.index_path = Path(os.getenv("FAISS_INDEX_PATH", "data/faiss_index"))
+        self.upload_dir = Path(os.getenv("UPLOAD_DIR", "uploads"))
+        self.model: Optional[SentenceTransformer] = None
+        self.index: Optional[faiss.Index] = None
+        self.documents: List[Dict[str, Any]] = []
+    
+    async def initialize(self):
+        """Inicjalizuje model embeddingów i indeks FAISS."""
+        try:
+            # Inicjalizacja modelu embeddingów
+            self.model = SentenceTransformer(self.embedding_model)
+            
+            # Inicjalizacja indeksu FAISS
+            if self.index_path.exists():
+                self.index = faiss.read_index(str(self.index_path))
+            else:
+                self.index_path.parent.mkdir(parents=True, exist_ok=True)
+                self.index = faiss.IndexFlatL2(384)  # 384 to wymiar wektora dla all-MiniLM-L6-v2
+            
+            # Wczytanie dokumentów
+            self.documents = self._load_documents()
+            
+            logger.info("RAG system initialized successfully")
+        except Exception as e:
+            logger.error(f"Error initializing RAG system: {e}")
+            raise
+    
+    def _load_documents(self) -> List[Dict[str, Any]]:
+        """
+        Wczytuje dokumenty z katalogu uploads.
+        
+        Returns:
+            List[Dict[str, Any]]: Lista dokumentów
+        """
+        documents = []
+        if self.upload_dir.exists():
+            for file_path in self.upload_dir.glob("*"):
+                if file_path.is_file():
+                    documents.append({
+                        "id": str(file_path),
+                        "name": file_path.name,
+                        "path": str(file_path)
+                    })
+        return documents
+    
+    async def add_document(self, file_path: str) -> bool:
+        """
+        Dodaje dokument do systemu RAG.
+        
+        Args:
+            file_path: Ścieżka do pliku
             
         Returns:
-            bool: True jeśli dokument został dodany pomyślnie, False w przeciwnym razie.
+            bool: True jeśli dokument został dodany pomyślnie
         """
         try:
-            loader = self._get_loader(file_path)
-            documents = loader.load()
+            if not self.model or not self.index:
+                await self.initialize()
             
-            splits = self.text_splitter.split_documents(documents)
+            if not self.model or not self.index:
+                raise Exception("Failed to initialize RAG system")
             
-            if self.vector_store is None:
-                self.vector_store = FAISS.from_documents(splits, self.embeddings)
-            else:
-                self.vector_store.add_documents(splits)
-                
-            self.vector_store.save_local(str(self.index_path))
-            logger.info(f"Successfully added document: {file_path}")
+            # Wczytanie dokumentu
+            with open(file_path, "r") as f:
+                content = f.read()
+            
+            # Generowanie embeddingu
+            embedding = self.model.encode([content])[0]
+            
+            # Dodanie do indeksu
+            self.index.add(np.array([embedding], dtype=np.float32))
+            
+            # Dodanie do listy dokumentów
+            self.documents.append({
+                "id": file_path,
+                "name": Path(file_path).name,
+                "path": file_path
+            })
+            
+            # Zapisanie indeksu
+            faiss.write_index(self.index, str(self.index_path))
+            
+            logger.info(f"Document {file_path} added successfully")
             return True
             
         except Exception as e:
             logger.error(f"Error adding document {file_path}: {e}")
             return False
     
+    def list_documents(self) -> List[Dict[str, Any]]:
+        """
+        Zwraca listę dokumentów w systemie RAG.
+        
+        Returns:
+            List[Dict[str, Any]]: Lista dokumentów
+        """
+        return self.documents
+    
+    async def query(self, query: str, k: int = 3) -> List[Dict[str, Any]]:
+        """
+        Wyszukuje dokumenty podobne do zapytania.
+        
+        Args:
+            query: Zapytanie
+            k: Liczba wyników
+            
+        Returns:
+            List[Dict[str, Any]]: Lista podobnych dokumentów
+        """
+        try:
+            if not self.model or not self.index:
+                await self.initialize()
+            
+            if not self.model or not self.index:
+                raise Exception("Failed to initialize RAG system")
+            
+            # Generowanie embeddingu zapytania
+            query_embedding = self.model.encode([query])[0]
+            
+            # Wyszukiwanie podobnych dokumentów
+            distances, indices = self.index.search(
+                np.array([query_embedding], dtype=np.float32),
+                k
+            )
+            
+            # Przygotowanie wyników
+            results = []
+            for i, idx in enumerate(indices[0]):
+                if idx < len(self.documents):
+                    doc = self.documents[idx]
+                    results.append({
+                        "document": doc,
+                        "score": float(distances[0][i])
+                    })
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error querying RAG system: {e}")
+            return []
+    
+    async def cleanup(self):
+        """Zamyka połączenia i zwalnia zasoby."""
+        if self.index:
+            faiss.write_index(self.index, str(self.index_path))
+        self.model = None
+        self.index = None
+
     def get_retriever(self) -> Optional[BaseRetriever]:
         """Zwraca retriever do wyszukiwania dokumentów w bazie wektorowej."""
         if self.vector_store is None:
