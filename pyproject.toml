@@ -1,0 +1,11 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.pylance]
+pythonVersion = "3.12"
+pythonPlatform = "Linux"
+
+[tool.pylance.analysis]
+typeCheckingMode = "basic"
+autoImportCompletions = true 

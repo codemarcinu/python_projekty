@@ -1,0 +1,12 @@
+# Core dependencies
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# Environment variables handling
+python-dotenv>=1.0.0
+
+# LLM integration
+ollama>=0.1.0
+
+# CLI interface
+typer[all]>=0.9.0
