@@ -5,9 +5,24 @@ Ten moduł odpowiada za wczytywanie i walidację ustawień aplikacji z pliku .en
 oraz zapewnia dostęp do tych ustawień w całej aplikacji.
 """
 
-from typing import Literal
+from typing import Literal, Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import ValidationError
 from pathlib import Path
+
+
+class ConfigError(Exception):
+    """
+    Wyjątek używany do sygnalizowania błędów związanych z konfiguracją.
+    
+    Attributes:
+        message (str): Opis błędu
+        original_error (Optional[Exception]): Oryginalny wyjątek, jeśli istnieje
+    """
+    def __init__(self, message: str, original_error: Optional[Exception] = None):
+        self.message = message
+        self.original_error = original_error
+        super().__init__(f"{message} (Original error: {str(original_error)})" if original_error else message)
 
 
 class Settings(BaseSettings):
@@ -20,6 +35,9 @@ class Settings(BaseSettings):
     
     # Konfiguracja dostawcy modelu LLM
     LLM_PROVIDER: Literal["ollama", "vllm"] = "ollama"
+    
+    # Adres hosta Ollama (domyślnie localhost)
+    OLLAMA_HOST: str = "http://localhost:11434"
     
     # Nazwa modelu LLM do użycia
     # Bielik to polskojęzyczny model o rozmiarze 11B parametrów, 
@@ -40,5 +58,27 @@ class Settings(BaseSettings):
     )
 
 
+def load_settings() -> Settings:
+    """
+    Wczytuje i waliduje ustawienia aplikacji.
+    
+    Returns:
+        Settings: Instancja klasy Settings z wczytanymi ustawieniami.
+        
+    Raises:
+        ConfigError: Jeśli wystąpi błąd podczas wczytywania lub walidacji ustawień.
+    """
+    try:
+        return Settings()
+    except ValidationError as e:
+        raise ConfigError("Błąd walidacji ustawień", e)
+    except Exception as e:
+        raise ConfigError("Nieoczekiwany błąd podczas wczytywania ustawień", e)
+
+
 # Globalna instancja ustawień, którą można importować z innych modułów
-settings = Settings()
+try:
+    settings = load_settings()
+except ConfigError as e:
+    print(f"Błąd konfiguracji: {e}")
+    raise

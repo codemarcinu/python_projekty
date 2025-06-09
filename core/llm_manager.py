@@ -7,7 +7,7 @@ za pomocą biblioteki ollama i odbieranie odpowiedzi.
 
 from typing import List, Dict, Any, cast
 import ollama
-from langchain.llms import Ollama
+from langchain_community.llms import Ollama
 from langchain.callbacks.manager import CallbackManager
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from .config_manager import settings

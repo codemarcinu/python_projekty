@@ -7,17 +7,18 @@ z systemem wtyczek, umożliwiając agentowi wykonywanie zadań i odpowiadanie u�
 
 import json
 import inspect
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Union
 from pydantic import ValidationError
 
 from langchain.chains import LLMChain
 from langchain.prompts import PromptTemplate
 from langchain.memory import ConversationBufferMemory
 from langchain.schema import HumanMessage, AIMessage
+from langchain.tools import Tool
 
 from .llm_manager import LLMManager
-from .module_system import load_modules, get_tool, _tools
-from .tool_models import WeatherArgs, AddTaskArgs, ListTasksArgs, TaskIdArgs, MathArgs
+from .module_system import load_modules, get_tool, _tools, get_tool_descriptions
+from .tool_models import WeatherArgs, AddTaskArgs, ListTasksArgs, TaskIdArgs, MathArgs, BaseTool
 
 
 class AIEngine:
@@ -46,6 +47,9 @@ class AIEngine:
             return_messages=True,
             output_key="output"
         )
+        
+        # Konwersja naszych narzędzi do formatu LangChain
+        self.langchain_tools = self._create_langchain_tools()
         
         # Szablon promptu dla głównego łańcucha
         self.main_prompt = PromptTemplate(
@@ -94,12 +98,40 @@ Narzędzie:"""
         
         print("AI Engine (v2.0 with LangChain) has been initialized.")
 
+    def _create_langchain_tools(self) -> List[Tool]:
+        """
+        Konwertuje nasze narzędzia do formatu LangChain Tool.
+        
+        Returns:
+            List[Tool]: Lista narzędzi w formacie LangChain.
+        """
+        tools = []
+        for name, tool in _tools.items():
+            if isinstance(tool, BaseTool):
+                # Dla klas dziedziczących po BaseTool
+                tools.append(Tool(
+                    name=tool.name,
+                    description=tool.description,
+                    func=tool.execute
+                ))
+            else:
+                # Dla funkcji z dekoratorem @tool
+                tools.append(Tool(
+                    name=name,
+                    description=tool.__doc__.strip() if tool.__doc__ else "No description available.",
+                    func=tool
+                ))
+        return tools
+
     def _get_formatted_tools_description(self) -> str:
         """Tworzy opis narzędzi dla promptu routera."""
         descriptions = []
-        for name, func in _tools.items():
-            docstring = func.__doc__.strip() if func.__doc__ else "No description available."
-            descriptions.append(f"- {name}: {docstring}")
+        for name, tool in _tools.items():
+            if isinstance(tool, BaseTool):
+                descriptions.append(f"- {tool.name}: {tool.description}")
+            else:
+                docstring = tool.__doc__.strip() if tool.__doc__ else "No description available."
+                descriptions.append(f"- {name}: {docstring}")
         return "\n".join(descriptions)
 
     def _choose_tool(self, conversation_history: List[Dict[str, str]]) -> str:
@@ -138,6 +170,10 @@ Narzędzie:"""
                 return {"task_ids": task_ids}
 
         target_tool = get_tool(tool_name)
+        if isinstance(target_tool, BaseTool):
+            # Dla narzędzi opartych na klasach, przekazujemy query jako argument
+            return {"query": user_prompt}
+            
         arg_spec = inspect.getfullargspec(target_tool)
         recent_history = "\n".join([f"{msg['role']}: {msg['content']}" for msg in conversation_history[-4:]])
         docstring = target_tool.__doc__.strip() if target_tool.__doc__ else "No description available."
@@ -175,11 +211,11 @@ Narzędzie:"""
         chosen_tool_name = self._choose_tool(conversation_history)
 
         if chosen_tool_name != "None":
-            tool_function = get_tool(chosen_tool_name)
+            tool = get_tool(chosen_tool_name)
             model_class = self.tool_arg_models.get(chosen_tool_name)
             
             tool_args = {}
-            if model_class:
+            if model_class and not isinstance(tool, BaseTool):
                 extracted_args = self._get_tool_args(chosen_tool_name, conversation_history)
                 try:
                     validated_args = model_class(**extracted_args)
@@ -187,9 +223,17 @@ Narzędzie:"""
                     print(f"DEBUG: Validated arguments: {tool_args}")
                 except ValidationError as e:
                     return f"Błąd Walidacji Danych dla narzędzia '{chosen_tool_name}':\n{e}"
+            else:
+                tool_args = self._get_tool_args(chosen_tool_name, conversation_history)
             
             try:
-                tool_result = tool_function(**tool_args)
+                if isinstance(tool, BaseTool):
+                    # Dla narzędzi opartych na klasach, używamy metody execute
+                    tool_result = tool.execute(**tool_args)
+                else:
+                    # Dla funkcji z dekoratorem @tool, wywołujemy je bezpośrednio
+                    tool_result = tool(**tool_args)
+                    
                 final_response_prompt = f"""You are a helpful assistant. A tool has just been executed...
                 Tool's result: "{tool_result}"
                 Based on the tool's result, formulate a brief, natural, and helpful response to the user in Polish."""

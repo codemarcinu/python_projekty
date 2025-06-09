@@ -14,6 +14,9 @@ typer[all]>=0.9.0
 # HTTP requests
 requests>=2.31.0
 
+# Web search
+duckduckgo-search>=4.1.1
+
 # Added from the code block
 langchain==0.1.0
 langchain-community==0.0.13

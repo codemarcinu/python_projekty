@@ -8,6 +8,7 @@ wymagające dostępu do najnowszych danych.
 
 from typing import Optional
 from core.tool_models import BaseTool
+from duckduckgo_search import DDGS
 
 
 class WebSearchTool(BaseTool):
@@ -16,6 +17,7 @@ class WebSearchTool(BaseTool):
     
     To narzędzie umożliwia asystentowi AI dostęp do aktualnych informacji
     z internetu, takich jak wiadomości, pogoda, wyniki sportowe itp.
+    Wykorzystuje API DuckDuckGo do wykonywania wyszukiwań.
     """
     
     name: str = "web_search"
@@ -29,11 +31,9 @@ class WebSearchTool(BaseTool):
         """
         Inicjalizuje narzędzie do wyszukiwania w internecie.
         
-        W przyszłości tutaj będzie inicjalizacja klienta wyszukiwarki
-        i innych niezbędnych komponentów.
+        Tworzy instancję klienta DuckDuckGo Search do wykonywania zapytań.
         """
-        # TODO: Dodać inicjalizację klienta wyszukiwarki
-        pass
+        self.search_client = DDGS()
     
     def execute(self, query: str) -> str:
         """
@@ -43,11 +43,26 @@ class WebSearchTool(BaseTool):
             query (str): Zapytanie wyszukiwawcze w języku naturalnym.
             
         Returns:
-            str: Wyniki wyszukiwania w formie tekstowej.
-            
-        Note:
-            Na razie jest to tylko atrapa (mock) funkcjonalności.
-            W przyszłości zostanie zaimplementowana rzeczywista logika wyszukiwania.
+            str: Wyniki wyszukiwania w formie tekstowej, zawierające tytuły
+                 i opisy znalezionych stron.
+                 
+        Raises:
+            Exception: W przypadku problemów z połączeniem lub wyszukiwaniem.
         """
-        # TODO: Zaimplementować rzeczywiste wyszukiwanie
-        return f"Oto symulowane wyniki wyszukiwania dla zapytania: '{query}'" 
+        try:
+            # Wykonaj wyszukiwanie i pobierz maksymalnie 4 wyniki
+            results = list(self.search_client.text(query, max_results=4))
+            
+            if not results:
+                return "Nie znaleziono żadnych wyników dla podanego zapytania."
+            
+            # Przetwórz wyniki na czytelny format
+            formatted_results = []
+            for result in results:
+                formatted_result = f"Tytuł: {result['title']}\nOpis: {result['body']}\n"
+                formatted_results.append(formatted_result)
+            
+            return "\n\n".join(formatted_results)
+            
+        except Exception as e:
+            return f"Wystąpił błąd podczas wyszukiwania: {str(e)}" 
