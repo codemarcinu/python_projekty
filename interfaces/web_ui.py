@@ -30,12 +30,23 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="AI Assistant")
 
 # Konfiguracja CORS
+origins = [
+    "http://localhost",
+    "http://localhost:8000",
+    "http://127.0.0.1",
+    "http://127.0.0.1:8000",
+    "http://localhost:3000",  # Dla React development server
+    "http://127.0.0.1:3000",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # W produkcji należy to ograniczyć
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=3600,  # Cache preflight requests for 1 hour
 )
 
 # Mount static files
@@ -105,15 +116,13 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str, request
     """WebSocket endpoint for real-time chat."""
     try:
         # Get origin from request headers
-        origin = request.headers.get('origin', '*')
+        origin = request.headers.get('origin')
         
-        # Set CORS headers
-        websocket.scope.setdefault('headers', []).extend([
-            (b'access-control-allow-origin', origin.encode()),
-            (b'access-control-allow-credentials', b'true'),
-            (b'access-control-allow-methods', b'GET, POST, OPTIONS'),
-            (b'access-control-allow-headers', b'*')
-        ])
+        # Validate origin
+        if origin and origin not in origins:
+            logger.warning(f"Rejected WebSocket connection from invalid origin: {origin}")
+            await websocket.close(code=4003, reason="Invalid origin")
+            return
         
         # Accept the connection
         await websocket.accept()
@@ -160,7 +169,7 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str, request
                         logger.error(f"Error processing message: {e}")
                         await websocket.send_json({
                             "type": "error",
-                            "content": "Error processing message"
+                            "content": str(e)
                         })
                         
                 except WebSocketDisconnect:
