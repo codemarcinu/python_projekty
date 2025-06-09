@@ -180,6 +180,7 @@ class WebSocketManager {
         this.maxReconnectAttempts = 5;
         this.reconnectDelay = 1000;
         this.isConnected = false;
+        this.connect();
     }
 
     generateConversationId() {
@@ -194,68 +195,92 @@ class WebSocketManager {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${protocol}//${window.location.host}/ws/${this.conversationId}`;
         
-        this.ws = new WebSocket(wsUrl);
-        
-        this.ws.onopen = () => {
-            console.log('WebSocket connected');
-            this.isConnected = true;
-            this.reconnectAttempts = 0;
-            this.updateConnectionStatus(true);
-        };
+        try {
+            this.ws = new WebSocket(wsUrl);
+            
+            this.ws.onopen = () => {
+                console.log('WebSocket connected');
+                this.isConnected = true;
+                this.reconnectAttempts = 0;
+                this.updateConnectionStatus(true);
+                this.showNotification('Połączono z serwerem', 'success');
+            };
 
-        this.ws.onmessage = (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                this.handleMessage(data);
-            } catch (error) {
-                console.error('Error parsing message:', error);
-                this.showError('Błąd przetwarzania wiadomości');
-            }
-        };
+            this.ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    this.handleMessage(data);
+                } catch (error) {
+                    console.error('Error parsing message:', error);
+                    this.showError('Błąd przetwarzania wiadomości');
+                }
+            };
 
-        this.ws.onclose = () => {
-            console.log('WebSocket closed');
-            this.isConnected = false;
-            this.updateConnectionStatus(false);
+            this.ws.onclose = (event) => {
+                console.log('WebSocket closed:', event.code, event.reason);
+                this.isConnected = false;
+                this.updateConnectionStatus(false);
+                
+                // Don't reconnect if the connection was closed normally
+                if (event.code === 1000) {
+                    this.showNotification('Połączenie zamknięte', 'info');
+                    return;
+                }
+                
+                this.attemptReconnect();
+            };
+
+            this.ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+                this.showError('Błąd połączenia WebSocket');
+            };
+        } catch (error) {
+            console.error('Error creating WebSocket:', error);
+            this.showError('Nie można utworzyć połączenia WebSocket');
             this.attemptReconnect();
-        };
-
-        this.ws.onerror = (error) => {
-            console.error('WebSocket error:', error);
-            this.showError('Błąd połączenia WebSocket');
-        };
+        }
     }
     
     attemptReconnect() {
         if (this.reconnectAttempts < this.maxReconnectAttempts) {
             this.reconnectAttempts++;
-            console.log(`Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
-            setTimeout(() => this.connect(), this.reconnectDelay * this.reconnectAttempts);
+            const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1); // Exponential backoff
+            console.log(`Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts}) in ${delay}ms...`);
+            this.showNotification(`Próba ponownego połączenia (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`, 'info');
+            setTimeout(() => this.connect(), delay);
         } else {
             console.error('Max reconnection attempts reached');
-            this.showError('Połączenie WebSocket zostało utracone. Odśwież stronę.');
+            this.showError('Nie można połączyć się z serwerem. Odśwież stronę.');
         }
     }
     
     sendMessage(message) {
-        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        if (!this.isConnected) {
+            this.showError('Brak połączenia z serwerem');
+            return false;
+        }
+        
+        try {
             const data = {
-                message: message,
-                use_agent: true,
+                type: 'message',
+                content: message,
                 timestamp: new Date().toISOString()
             };
             
             this.ws.send(JSON.stringify(data));
             return true;
+        } catch (error) {
+            console.error('Error sending message:', error);
+            this.showError('Błąd wysyłania wiadomości');
+            return false;
         }
-        return false;
     }
     
     handleMessage(data) {
-        if (data.error) {
-            this.showError(data.error);
-        } else if (data.response) {
-            this.displayMessage('assistant', data.response);
+        if (data.type === 'error') {
+            this.showError(data.content);
+        } else if (data.type === 'chat') {
+            this.displayMessage('assistant', data.content);
         } else if (data.type === 'stats') {
             this.updateStatsDisplay(data.data);
         }
@@ -287,9 +312,9 @@ class WebSocketManager {
         }
     }
     
-    showError(message) {
+    showNotification(message, type = 'info') {
         const notification = document.createElement('div');
-        notification.className = 'notification error';
+        notification.className = `notification ${type}`;
         notification.textContent = message;
         document.body.appendChild(notification);
         
@@ -298,14 +323,24 @@ class WebSocketManager {
         }, 5000);
     }
     
+    showError(message) {
+        this.showNotification(message, 'error');
+    }
+    
     updateStats() {
         fetch('/api/stats')
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
             .then(data => {
                 this.updateStatsDisplay(data);
             })
             .catch(error => {
                 console.error('Error fetching stats:', error);
+                this.showError('Błąd pobierania statystyk');
             });
     }
     
@@ -337,13 +372,14 @@ document.addEventListener('DOMContentLoaded', function() {
             const message = messageInput.value.trim();
             if (message) {
                 wsManager.displayMessage('user', message);
-                wsManager.sendMessage(message);
-                messageInput.value = '';
+                if (wsManager.sendMessage(message)) {
+                    messageInput.value = '';
+                }
             }
         });
         
         messageInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
+            if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 sendButton.click();
             }

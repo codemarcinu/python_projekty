@@ -43,7 +43,7 @@ class RAGSettings(BaseModel):
     """Settings for RAG system configuration."""
     # Embeddings
     base_url: str = Field(default="http://localhost:11434", description="Ollama API host")
-    embedding_model: str = Field(default="nomic-embed-text", description="Model for text embeddings")
+    embedding_model: str = Field(default="nomic-ai/nomic-embed-text-v1.5", description="Model for text embeddings")
     
     # Chunking
     chunk_size: int = Field(default=1000, gt=0, description="Size of text chunks for processing")

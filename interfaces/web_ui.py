@@ -101,11 +101,22 @@ async def get_chat_interface():
         raise HTTPException(status_code=500, detail="Błąd ładowania interfejsu czatu")
 
 @app.websocket("/ws/{conversation_id}")
-async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
+async def websocket_endpoint(websocket: WebSocket, conversation_id: str, request: Request):
     """WebSocket endpoint for real-time chat."""
     try:
-        # Authenticate the connection
-        token = await get_websocket_token(websocket)
+        # Get origin from request headers
+        origin = request.headers.get('origin', '*')
+        
+        # Set CORS headers
+        websocket.scope.setdefault('headers', []).extend([
+            (b'access-control-allow-origin', origin.encode()),
+            (b'access-control-allow-credentials', b'true'),
+            (b'access-control-allow-methods', b'GET, POST, OPTIONS'),
+            (b'access-control-allow-headers', b'*')
+        ])
+        
+        # Accept the connection
+        await websocket.accept()
         
         logger.info(f"WebSocket connection established for conversation {conversation_id}")
         
