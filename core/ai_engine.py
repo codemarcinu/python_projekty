@@ -22,7 +22,7 @@ class AIEngine:
         load_plugins("plugins")
         self.tools_description = self._get_formatted_tools_description()
         self.llm = LLMManager()
-        print("Silnik AI (Super-Prosty Router) został zainicjalizowany.")
+        print("Silnik AI (Super-Prosty Router PL) został zainicjalizowany.")
 
     def _get_formatted_tools_description(self) -> str:
         """Tworzy opis narzędzi dla promptu routera."""
@@ -33,19 +33,16 @@ class AIEngine:
         return "\n".join(descriptions)
 
     def _choose_tool(self, user_prompt: str) -> str:
-        # OSTATECZNY, NAJPROSTSZY MOŻLIWY PROMPT
         tool_names = ", ".join(_tools.keys())
         prompt = f"""Odpowiedz jednym słowem. Które z tych narzędzi: [{tool_names}, None] najlepiej pasuje do prośby użytkownika?
 
         Prośba: "{user_prompt}"
+
         Narzędzie:"""
 
         response = self.llm.generate_response([{'role': 'user', 'content': prompt}])
-        
-        # BARDZIEJ ODPORNA METODA PARSOWANIA
         response_lower = response.lower().strip().replace('"', '').replace("'", "").replace(".", "")
 
-        # Sprawdźmy, czy odpowiedź to DOKŁADNIE nazwa jednego z narzędzi
         for tool_name in _tools:
             if tool_name.lower() in response_lower:
                 print(f"DEBUG: Router wybrał narzędzie: {tool_name}")
@@ -61,9 +58,13 @@ class AIEngine:
         
         prompt = f"""Twoim zadaniem jest wydobycie argumentów dla narzędzia '{tool_name}' z prośby użytkownika.
         Wymagane argumenty: {arg_spec.args}
+        Opis narzędzia: "{target_tool.__doc__.strip() if target_tool.__doc__ else 'Brak opisu.'}"
+
         Prośba użytkownika: "{user_prompt}"
-        Odpowiedz TYLKO I WYŁĄCZNIE poprawnym obiektem JSON.
-        """
+
+        Odpowiedz TYLKO I WYŁĄCZNIE poprawnym obiektem JSON. Jeśli argumenty nie są potrzebne, zwróć pusty obiekt {{}}.
+        JSON:"""
+        
         response = self.llm.generate_response([{'role': 'user', 'content': prompt}])
         try:
             cleaned_json = response[response.find('{'):response.rfind('}')+1]
@@ -71,8 +72,8 @@ class AIEngine:
             print(f"DEBUG: Router uzyskał argumenty: {args}")
             return args
         except json.JSONDecodeError:
-            print(f"BŁĄD: Nie udało się sparsować argumentów JSON: {response}")
-            return {} # Zwróć pusty słownik, jeśli nie ma argumentów
+            print(f"BŁĄD: Nie udało się sparsować argumentów JSON z odpowiedzi: {response}")
+            return {}
 
     def process_turn(self, conversation_history: List[Dict[str, str]]) -> str:
         """Główna metoda przetwarzająca turę rozmowy."""
@@ -83,10 +84,17 @@ class AIEngine:
 
         # ETAP 2: WYKONANIE LUB ROZMOWA
         if chosen_tool_name != "None":
-            tool_args = self._get_tool_args(chosen_tool_name, user_prompt)
             tool_function = get_tool(chosen_tool_name)
+            # Sprawdź, czy funkcja wymaga argumentów
+            if inspect.getfullargspec(tool_function).args:
+                tool_args = self._get_tool_args(chosen_tool_name, user_prompt)
+            else:
+                tool_args = {} # Puste argumenty dla funkcji bezargumentowych
+                print(f"DEBUG: Narzędzie '{chosen_tool_name}' nie wymaga argumentów.")
+
             try:
                 result = tool_function(**tool_args)
+                # Zwracamy wynik bezpośrednio, zgodnie z naszą "poprawką na dyscyplinę"
                 return str(result)
             except Exception as e:
                 return f"Błąd podczas wykonywania narzędzia {chosen_tool_name}: {e}"
