@@ -12,7 +12,7 @@ from rich.panel import Panel
 from core.ai_engine import AIEngine
 from core.conversation_handler import ConversationHandler
 from core.database import init_db, DatabaseError
-from core.config_manager import settings, ConfigError, ConfigManager
+from core.config_manager import config_manager, ConfigError
 from core.exceptions import AIEngineError, ConversationError
 import asyncio
 
@@ -69,12 +69,12 @@ def chat(
     
     try:
         # Wyświetl informację o używanym modelu
-        console.print(f"🔌 Korzystam z modelu: [bold green]{settings.LLM_MODEL}[/bold green]")
+        console.print(f"🔌 Korzystam z modelu: [bold green]{config_manager.settings.LLM_MODEL}[/bold green]")
     except ConfigError as e:
         handle_error(e, "pobierania konfiguracji")
 
     try:
-        engine = AIEngine()
+        engine = AIEngine(config_manager)
         handler = ConversationHandler()
     except (AIEngineError, ConversationError) as e:
         handle_error(e, "inicjalizacji silnika AI")
@@ -130,8 +130,7 @@ async def rag_query(query: str) -> None:
     """
     try:
         # Inicjalizacja silnika AI
-        config = ConfigManager()
-        engine = AIEngine(config)
+        engine = AIEngine(config_manager)
         
         # Sprawdzenie czy baza wektorowa istnieje
         if engine.rag_manager.vector_store is None:

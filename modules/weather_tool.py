@@ -3,7 +3,7 @@
 import requests
 import json
 from core.module_system import tool
-from core.config_manager import settings
+from core.config_manager import config_manager
 
 @tool
 def get_current_weather(city: str) -> str:
@@ -14,7 +14,7 @@ def get_current_weather(city: str) -> str:
     :param city: Nazwa miasta, dla którego ma być sprawdzona pogoda.
     :return: Sformatowany ciąg znaków z danymi pogodowymi lub komunikat o błędzie.
     """
-    api_key = settings.WEATHER_API_KEY
+    api_key = config_manager.settings.WEATHER_API_KEY
     if not api_key:
         return "Błąd: Brak klucza API do serwisu pogodowego. Skontaktuj się z administratorem."
         

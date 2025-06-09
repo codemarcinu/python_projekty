@@ -5,12 +5,12 @@ Ten moduł odpowiada za wysyłanie zapytań do lokalnego modelu LLM
 za pomocą biblioteki ollama i odbieranie odpowiedzi.
 """
 
-from typing import List, Dict, Any, cast, AsyncGenerator
+from typing import List, Dict, Any, cast, AsyncGenerator, Mapping
 import ollama
 from langchain_community.llms import Ollama
 from langchain.callbacks.manager import CallbackManager
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
-from .config_manager import settings
+from .config_manager import config_manager
 from core.exceptions import AIEngineError, ConfigError
 from collections.abc import Iterator
 
@@ -29,8 +29,9 @@ class OllamaClient:
             ConfigError: Jeśli brakuje wymaganych ustawień w konfiguracji.
             AIEngineError: Jeśli nie można połączyć się z serwerem Ollama.
         """
-        model = getattr(settings, "LLM_MODEL", None)
-        host = getattr(settings, "OLLAMA_HOST", None)
+        settings = config_manager.settings
+        model = settings.LLM_MODEL
+        host = settings.OLLAMA_HOST
         if not isinstance(model, str) or not model:
             raise ConfigError("Brak nazwy modelu LLM w konfiguracji (LLM_MODEL)")
         if not isinstance(host, str) or not host:
@@ -68,12 +69,12 @@ class OllamaClient:
             # Konwertujemy historię do formatu akceptowanego przez ollama
             messages = [{"role": msg["role"], "content": msg["content"]} for msg in history]
             # Typ messages jest zgodny z dokumentacją oficjalnego klienta Ollama (list[dict[str, str]])
-            response = self.client.chat(
+            response = cast(Dict[str, Any], self.client.chat(
                 model=self.model,
                 messages=messages,  # type: ignore[arg-type]
                 stream=False
-            )
-            return response['message']['content']
+            ))
+            return str(response.get('message', {}).get('content', ''))
         except Exception as e:
             return f"Wystąpił błąd podczas generowania odpowiedzi: {str(e)}"
 
@@ -97,8 +98,8 @@ class OllamaClient:
             )
             
             for chunk in stream:
-                if 'message' in chunk and 'content' in chunk['message']:
-                    yield chunk['message']['content']
+                if isinstance(chunk, dict) and 'message' in chunk and isinstance(chunk['message'], dict) and 'content' in chunk['message']:
+                    yield str(chunk['message']['content'])
                     
         except Exception as e:
             yield f"Wystąpił błąd podczas generowania odpowiedzi: {str(e)}"

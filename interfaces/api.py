@@ -15,7 +15,7 @@ from typing import List, Dict, AsyncGenerator, Optional
 # Importujemy nasz gotowy silnik AI i menedżera konwersacji
 from core.ai_engine import AIEngine
 from core.conversation_handler import ConversationHandler
-from core.config_manager import ConfigManager
+from core.config_manager import config_manager
 
 # --- Definicja modeli danych (co przyjmujemy i co zwracamy) ---
 class ChatRequest(BaseModel):
@@ -38,8 +38,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Tworzymy jedną, globalną instancję silnika, która będzie używana przez wszystkich
 # To wydajne, bo wtyczki ładują się tylko raz.
-config = ConfigManager()
-engine = AIEngine(config)
+engine = AIEngine(config_manager)
 
 @app.on_event("startup")
 async def startup_event():

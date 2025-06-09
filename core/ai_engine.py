@@ -50,7 +50,7 @@ class AIEngine:
         self.config_manager = config_manager
         
         # Inicjalizacja menedżera RAG
-        self.rag_manager = RAGManager(config_manager)
+        self.rag_manager = RAGManager(config_manager.settings)
         self.rag_manager.load_store()
         
         load_modules("modules")
