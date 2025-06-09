@@ -22,33 +22,34 @@ class AIEngine:
         load_plugins("plugins")
         self.tools_description = self._get_formatted_tools_description()
         self.llm = LLMManager()
-        print("Silnik AI (Super-Prosty Router PL) został zainicjalizowany.")
+        print("AI Engine (Router - English Prompts) has been initialized.")
 
     def _get_formatted_tools_description(self) -> str:
         """Tworzy opis narzędzi dla promptu routera."""
         descriptions = []
         for name, func in _tools.items():
-            docstring = func.__doc__.strip() if func.__doc__ else "Brak opisu."
+            docstring = func.__doc__.strip() if func.__doc__ else "No description available."
             descriptions.append(f"- {name}: {docstring}")
         return "\n".join(descriptions)
 
     def _choose_tool(self, user_prompt: str) -> str:
         tool_names = ", ".join(_tools.keys())
-        prompt = f"""Odpowiedz jednym słowem. Które z tych narzędzi: [{tool_names}, None] najlepiej pasuje do prośby użytkownika?
+        prompt = f"""Your task is to choose a tool. Based on the user's request, which of the following tools is the most appropriate: [{tool_names}, None]?
 
-        Prośba: "{user_prompt}"
+        User request: "{user_prompt}"
 
-        Narzędzie:"""
+        Respond with a single word: the name of the tool or "None".
+        Tool:"""
 
         response = self.llm.generate_response([{'role': 'user', 'content': prompt}])
         response_lower = response.lower().strip().replace('"', '').replace("'", "").replace(".", "")
 
         for tool_name in _tools:
             if tool_name.lower() in response_lower:
-                print(f"DEBUG: Router wybrał narzędzie: {tool_name}")
+                print(f"DEBUG: Router chose tool: {tool_name}")
                 return tool_name
 
-        print(f"DEBUG: Router nie wybrał żadnego narzędzia (odpowiedź AI: '{response}')")
+        print(f"DEBUG: Router chose no tool (AI response: '{response}')")
         return "None"
 
     def _get_tool_args(self, tool_name: str, user_prompt: str) -> Dict[str, Any]:
@@ -56,23 +57,23 @@ class AIEngine:
         target_tool = get_tool(tool_name)
         arg_spec = inspect.getfullargspec(target_tool)
         
-        prompt = f"""Twoim zadaniem jest wydobycie argumentów dla narzędzia '{tool_name}' z prośby użytkownika.
-        Wymagane argumenty: {arg_spec.args}
-        Opis narzędzia: "{target_tool.__doc__.strip() if target_tool.__doc__ else 'Brak opisu.'}"
+        prompt = f"""Your task is to extract arguments for the tool '{tool_name}' from the user's request.
+        The tool's required arguments are: {arg_spec.args}.
+        The tool's description is: "{target_tool.__doc__.strip() if target_tool.__doc__ else 'No description available.'}"
 
-        Prośba użytkownika: "{user_prompt}"
+        User's request: "{user_prompt}"
 
-        Odpowiedz TYLKO I WYŁĄCZNIE poprawnym obiektem JSON. Jeśli argumenty nie są potrzebne, zwróć pusty obiekt {{}}.
+        Respond ONLY with a valid JSON object containing the arguments. If no arguments are needed, respond with an empty JSON object {{}}.
         JSON:"""
         
         response = self.llm.generate_response([{'role': 'user', 'content': prompt}])
         try:
             cleaned_json = response[response.find('{'):response.rfind('}')+1]
             args = json.loads(cleaned_json)
-            print(f"DEBUG: Router uzyskał argumenty: {args}")
+            print(f"DEBUG: Router got arguments: {args}")
             return args
         except json.JSONDecodeError:
-            print(f"BŁĄD: Nie udało się sparsować argumentów JSON z odpowiedzi: {response}")
+            print(f"ERROR: Failed to parse JSON arguments from response: {response}")
             return {}
 
     def process_turn(self, conversation_history: List[Dict[str, str]]) -> str:
@@ -97,7 +98,7 @@ class AIEngine:
                 # Zwracamy wynik bezpośrednio, zgodnie z naszą "poprawką na dyscyplinę"
                 return str(result)
             except Exception as e:
-                return f"Błąd podczas wykonywania narzędzia {chosen_tool_name}: {e}"
+                return f"Error while executing tool {chosen_tool_name}: {e}"
         else:
             # Jeśli żadne narzędzie nie zostało wybrane, prowadź normalną rozmowę
             return self.llm.generate_response(conversation_history)
