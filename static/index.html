@@ -3,46 +3,59 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Asystent</title>
-    <link rel="stylesheet" href="/static/styles.css">
+    <title>AI Assistant Dashboard</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
 </head>
 <body>
     <div class="container">
-        <header>
-            <h1>AI Asystent</h1>
-            <div class="connection-status">
-                Status: <span id="connectionStatus" class="status-disconnected">Rozłączony</span>
-            </div>
-        </header>
-
-        <main>
-            <div class="chat-container">
-                <div id="chatHistory" class="chat-history"></div>
-                
-                <div class="input-container">
-                    <div class="input-wrapper">
-                        <textarea 
-                            id="messageInput" 
-                            placeholder="Napisz wiadomość..." 
-                            rows="3"
-                        ></textarea>
-                        <div class="controls">
-                            <label class="agent-toggle">
-                                <input type="checkbox" id="useAgent" checked>
-                                <span>Tryb agenta</span>
-                            </label>
-                            <button id="sendMessage" class="send-button">
-                                Wyślij
-                            </button>
-                        </div>
+        <div class="main-panel">
+            <div class="header">
+                <h1>🤖 AI Assistant Dashboard</h1>
+                <div class="status-bar">
+                    <div class="status">
+                        Status połączenia: <span id="connectionStatus" class="status-disconnected">Rozłączony</span>
+                    </div>
+                    <div class="model-info">
+                        Model: <span id="modelInfo">Gemma3:12B</span>
                     </div>
                 </div>
             </div>
-        </main>
 
-        <footer>
-            <p>Powered by Ollama & LangChain</p>
-        </footer>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-value" id="activeModels">2</div>
+                    <div class="stat-label">Aktywne modele</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="docCount">0</div>
+                    <div class="stat-label">Dokumenty</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="conversations">1</div>
+                    <div class="stat-label">Rozmowy</div>
+                </div>
+            </div>
+
+            <div class="features">
+                <h2>Funkcje</h2>
+                <div class="feature-grid">
+                    <div class="feature-card">🌦️ Pogoda</div>
+                    <div class="feature-card">🕒 Czas</div>
+                    <div class="feature-card">🧮 Kalkulator</div>
+                    <div class="feature-card">🔍 Wyszukiwanie</div>
+                    <div class="feature-card">📄 Analiza dokumentów</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="chat-panel">
+            <h2>Chat z AI</h2>
+            <div id="chatHistory" class="chat-history"></div>
+            <div class="input-area">
+                <input type="text" id="messageInput" placeholder="Napisz wiadomość...">
+                <button id="sendMessage">Wyślij</button>
+            </div>
+        </div>
     </div>
 
     <script src="/static/js/dashboard.js"></script>

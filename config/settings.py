@@ -10,24 +10,23 @@ class LLMSettings(BaseModel):
     ollama_host: str = "http://localhost:11434"
     ollama_timeout: int = 300
 
-class RAGSettings(BaseModel):
-    """Ustawienia dla RAG (Retrieval-Augmented Generation)."""
-    # Embeddings
+class RAGSettings(BaseSettings):
+    """Settings for RAG (Retrieval-Augmented Generation) system."""
     base_url: str = "http://localhost:11434"
-    embedding_model: str = "nomic-embed-text"
-    
-    # Chunking
+    embedding_model: str = "all-MiniLM-L6-v2"
     chunk_size: int = 1000
     chunk_overlap: int = 200
-    
-    # Ścieżki
     index_path: Path = Path("data/faiss_index")
     vector_db_path: Path = Path("data/vector_db")
     upload_dir: Path = Path("uploads")
-    
-    # Inne ustawienia
     max_results: int = 5
     similarity_threshold: float = 0.7
+    embedding_dimension: int = 384  # Dimension for all-MiniLM-L6-v2
+    use_ollama_embeddings: bool = False  # Set to True to use Ollama embeddings instead of sentence-transformers
+
+    class Config:
+        env_prefix = "RAG_"
+        case_sensitive = False
 
 class Settings(BaseSettings):
     """Główne ustawienia aplikacji."""

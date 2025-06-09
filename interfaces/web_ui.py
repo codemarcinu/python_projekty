@@ -81,73 +81,65 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
     """WebSocket endpoint for real-time chat."""
     try:
         await websocket.accept()
-        active_connections[conversation_id] = websocket
         logger.info(f"WebSocket connection established for conversation {conversation_id}")
         
-        while True:
-            try:
-                # Odbierz wiadomość jako tekst
-                raw_data = await websocket.receive_text()
-                
-                # Sparsuj JSON
+        # Initialize AI engine
+        ai_engine = get_ai_engine()
+        
+        # Add to active connections
+        active_connections[conversation_id] = websocket
+        
+        try:
+            while True:
                 try:
-                    data = json.loads(raw_data)
-                except json.JSONDecodeError as e:
-                    logger.error(f"Invalid JSON received: {e}")
-                    await websocket.send_json({
-                        "error": "Nieprawidłowy format JSON",
-                        "timestamp": datetime.now().isoformat()
-                    })
-                    continue
-                
-                message = data.get("message", "").strip()
-                use_agent = data.get("use_agent", True)  # Domyślnie włączony agent
-                
-                if not message:
-                    await websocket.send_json({
-                        "error": "Wiadomość nie może być pusta",
-                        "timestamp": datetime.now().isoformat()
-                    })
-                    continue
-                
-                # Przetwórz wiadomość przez AI
-                ai_engine = get_ai_engine()
-                
-                response = await ai_engine.process_message(
-                    message=message,
-                    conversation_id=conversation_id,
-                    use_agent=use_agent
-                )
-                
-                # Wyślij odpowiedź
-                await websocket.send_json({
-                    "response": response,
-                    "conversation_id": conversation_id,
-                    "timestamp": datetime.now().isoformat()
-                })
-                
-            except WebSocketDisconnect:
-                logger.info(f"WebSocket disconnected for conversation {conversation_id}")
-                break
-            except Exception as e:
-                logger.error(f"Error processing WebSocket message: {e}")
-                try:
-                    await websocket.send_json({
-                        "error": f"Błąd przetwarzania: {str(e)}",
-                        "timestamp": datetime.now().isoformat()
-                    })
-                except:
+                    # Receive message
+                    data = await websocket.receive_text()
+                    
+                    try:
+                        message = json.loads(data)
+                    except json.JSONDecodeError:
+                        logger.error("Received invalid JSON from client")
+                        await websocket.send_json({
+                            "type": "error",
+                            "content": "Invalid message format"
+                        })
+                        continue
+                    
+                    # Process message
+                    try:
+                        response = await ai_engine.process_message(
+                            message.get("content", ""),
+                            conversation_id
+                        )
+                        
+                        # Send response
+                        await websocket.send_json({
+                            "type": "chat",
+                            "content": response,
+                            "role": "assistant"
+                        })
+                        
+                    except Exception as e:
+                        logger.error(f"Error processing message: {e}")
+                        await websocket.send_json({
+                            "type": "error",
+                            "content": "Error processing message"
+                        })
+                        
+                except WebSocketDisconnect:
+                    logger.info(f"WebSocket connection closed for conversation {conversation_id}")
                     break
                     
+        except Exception as e:
+            logger.error(f"WebSocket error: {e}")
+            
     except Exception as e:
-        logger.error(f"WebSocket error for conversation {conversation_id}: {e}")
+        logger.error(f"Error in WebSocket connection: {e}")
+        
     finally:
-        try:
-            if conversation_id in active_connections:
-                del active_connections[conversation_id]
-            await websocket.close()
-        except:
-            pass
+        # Clean up
+        if conversation_id in active_connections:
+            del active_connections[conversation_id]
 
 async def send_stats_update(websocket: WebSocket):
     """Send current stats to the client."""
@@ -192,50 +184,44 @@ async def get_stats():
     """Get current system stats."""
     return await get_current_stats()
 
-@app.post("/api/upload")
-async def upload_document(file: UploadFile = File(...)):
-    """Upload a document to the RAG system."""
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="No filename provided")
-    
-    # Validate file type
-    allowed_types = {".pdf", ".txt", ".md", ".doc", ".docx"}
-    file_ext = Path(file.filename).suffix.lower()
-    if file_ext not in allowed_types:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported file type. Allowed types: {', '.join(allowed_types)}"
-        )
-    
-    # Validate file size (50MB limit)
-    content = await file.read()
-    if len(content) > 50 * 1024 * 1024:  # 50MB
-        raise HTTPException(
-            status_code=400,
-            detail="File too large. Maximum size is 50MB."
-        )
-    
-    # Save file
-    upload_dir = Path("uploads")
-    upload_dir.mkdir(parents=True, exist_ok=True)
-    file_path = upload_dir / file.filename
-    
-    with file_path.open("wb") as f:
-        f.write(content)
-    
-    # Process file with RAG system
+@app.post("/upload")
+async def upload_file(file: UploadFile = File(...)):
+    """Upload a document for RAG processing."""
     try:
-        file_id = rag_manager.add_document(file_path)
-        return {
-            "success": True,
-            "file_id": file_id,
-            "filename": file.filename
-        }
+        # Validate file size (50MB limit)
+        content = await file.read()
+        if len(content) > 50 * 1024 * 1024:  # 50MB
+            raise HTTPException(
+                status_code=400,
+                detail="File too large. Maximum size is 50MB."
+            )
+            
+        # Save file
+        if not file.filename:
+            raise HTTPException(status_code=400, detail="No filename provided")
+            
+        file_path = Path("uploads") / file.filename
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        with open(file_path, "wb") as f:
+            f.write(content)
+            
+        # Process with RAG
+        success = await rag_manager.add_document(str(file_path))
+        
+        if not success:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to process document"
+            )
+            
+        return {"message": "File uploaded and processed successfully"}
+        
     except Exception as e:
-        logger.error(f"Error processing document: {e}")
+        logger.error(f"Error uploading file: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"Error processing document: {str(e)}"
+            detail="Error processing file"
         )
 
 @app.delete("/api/documents/{file_id}")

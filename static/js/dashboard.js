@@ -174,173 +174,182 @@ updateStats();
 
 class WebSocketManager {
     constructor() {
-        this.ws = null;
         this.conversationId = this.generateConversationId();
+        this.ws = null;
         this.reconnectAttempts = 0;
         this.maxReconnectAttempts = 5;
-        this.reconnectDelay = 1000; // 1 sekunda
+        this.reconnectDelay = 1000;
+        this.isConnected = false;
     }
-    
+
     generateConversationId() {
-        return 'conv_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+            const r = Math.random() * 16 | 0;
+            const v = c === 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+        });
     }
-    
+
     connect() {
-        try {
-            // POPRAWNY protokół WebSocket z conversation_id
-            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsUrl = `${protocol}//${window.location.host}/ws/${this.conversationId}`;
-            
-            console.log('Connecting to WebSocket:', wsUrl);
-            
-            this.ws = new WebSocket(wsUrl);
-            
-            this.ws.onopen = (event) => {
-                console.log('WebSocket connected successfully');
-                this.reconnectAttempts = 0;
-                this.updateConnectionStatus(true);
-            };
-            
-            this.ws.onmessage = (event) => {
-                try {
-                    const data = JSON.parse(event.data);
-                    this.handleMessage(data);
-                } catch (error) {
-                    console.error('Error parsing WebSocket message:', error);
-                }
-            };
-            
-            this.ws.onerror = (error) => {
-                console.error('WebSocket error:', error);
-                this.updateConnectionStatus(false);
-            };
-            
-            this.ws.onclose = (event) => {
-                console.log('WebSocket closed:', event.code, event.reason);
-                this.updateConnectionStatus(false);
-                this.attemptReconnect();
-            };
-            
-        } catch (error) {
-            console.error('Error creating WebSocket connection:', error);
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}/ws/${this.conversationId}`;
+        
+        this.ws = new WebSocket(wsUrl);
+        
+        this.ws.onopen = () => {
+            console.log('WebSocket connected');
+            this.isConnected = true;
+            this.reconnectAttempts = 0;
+            this.updateConnectionStatus(true);
+        };
+
+        this.ws.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                this.handleMessage(data);
+            } catch (error) {
+                console.error('Error parsing message:', error);
+                this.showError('Błąd przetwarzania wiadomości');
+            }
+        };
+
+        this.ws.onclose = () => {
+            console.log('WebSocket closed');
+            this.isConnected = false;
             this.updateConnectionStatus(false);
-        }
+            this.attemptReconnect();
+        };
+
+        this.ws.onerror = (error) => {
+            console.error('WebSocket error:', error);
+            this.showError('Błąd połączenia WebSocket');
+        };
     }
     
     attemptReconnect() {
         if (this.reconnectAttempts < this.maxReconnectAttempts) {
             this.reconnectAttempts++;
             console.log(`Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
-            setTimeout(() => {
-                this.connect();
-            }, this.reconnectDelay * this.reconnectAttempts);
+            setTimeout(() => this.connect(), this.reconnectDelay * this.reconnectAttempts);
         } else {
             console.error('Max reconnection attempts reached');
             this.showError('Połączenie WebSocket zostało utracone. Odśwież stronę.');
         }
     }
     
-    sendMessage(message, useAgent = true) {
+    sendMessage(message) {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
             const data = {
                 message: message,
-                use_agent: useAgent,
+                use_agent: true,
                 timestamp: new Date().toISOString()
             };
             
-            try {
-                this.ws.send(JSON.stringify(data));
-                return true;
-            } catch (error) {
-                console.error('Error sending WebSocket message:', error);
-                return false;
-            }
-        } else {
-            console.error('WebSocket not connected');
-            this.showError('Brak połączenia WebSocket. Próbuję połączyć ponownie...');
-            this.connect();
-            return false;
+            this.ws.send(JSON.stringify(data));
+            return true;
         }
+        return false;
     }
     
     handleMessage(data) {
         if (data.error) {
-            console.error('Server error:', data.error);
             this.showError(data.error);
         } else if (data.response) {
             this.displayMessage('assistant', data.response);
-        }
-    }
-    
-    updateConnectionStatus(connected) {
-        const statusElement = document.getElementById('connectionStatus');
-        if (statusElement) {
-            statusElement.textContent = connected ? 'Połączony' : 'Rozłączony';
-            statusElement.className = connected ? 'status-connected' : 'status-disconnected';
-        }
-    }
-    
-    showError(message) {
-        // Pokaż błąd w interfejsie
-        const errorDiv = document.createElement('div');
-        errorDiv.className = 'error-message';
-        errorDiv.textContent = message;
-        
-        const chatContainer = document.getElementById('chatHistory');
-        if (chatContainer) {
-            chatContainer.appendChild(errorDiv);
-            chatContainer.scrollTop = chatContainer.scrollHeight;
+        } else if (data.type === 'stats') {
+            this.updateStatsDisplay(data.data);
         }
     }
     
     displayMessage(sender, message) {
-        const chatContainer = document.getElementById('chatHistory');
-        if (!chatContainer) return;
+        const chatHistory = document.getElementById('chatHistory');
+        if (!chatHistory) return;
         
         const messageDiv = document.createElement('div');
         messageDiv.className = `message ${sender}-message`;
-        
-        const timestamp = new Date().toLocaleTimeString();
         messageDiv.innerHTML = `
-            <div class="message-content">${message}</div>
-            <div class="message-timestamp">${timestamp}</div>
+            <div class="message-content">
+                <div class="message-role">${sender === 'user' ? 'Ty' : 'AI'}</div>
+                <div class="message-text">${message}</div>
+                <div class="message-time">${new Date().toLocaleTimeString()}</div>
+            </div>
         `;
         
-        chatContainer.appendChild(messageDiv);
-        chatContainer.scrollTop = chatContainer.scrollHeight;
+        chatHistory.appendChild(messageDiv);
+        chatHistory.scrollTop = chatHistory.scrollHeight;
+    }
+    
+    updateConnectionStatus(connected) {
+        const status = document.getElementById('connectionStatus');
+        if (status) {
+            status.textContent = connected ? 'Połączony' : 'Rozłączony';
+            status.className = connected ? 'status-connected' : 'status-disconnected';
+        }
+    }
+    
+    showError(message) {
+        const notification = document.createElement('div');
+        notification.className = 'notification error';
+        notification.textContent = message;
+        document.body.appendChild(notification);
+        
+        setTimeout(() => {
+            notification.remove();
+        }, 5000);
+    }
+    
+    updateStats() {
+        fetch('/api/stats')
+            .then(response => response.json())
+            .then(data => {
+                this.updateStatsDisplay(data);
+            })
+            .catch(error => {
+                console.error('Error fetching stats:', error);
+            });
+    }
+    
+    updateStatsDisplay(data) {
+        const modelInfo = document.getElementById('modelInfo');
+        const activeModels = document.getElementById('activeModels');
+        const docCount = document.getElementById('docCount');
+        const conversations = document.getElementById('conversations');
+        
+        if (modelInfo) modelInfo.textContent = data.active_model || 'Gemma3:12B';
+        if (activeModels) activeModels.textContent = data.active_models || '2';
+        if (docCount) docCount.textContent = data.doc_count || '0';
+        if (conversations) conversations.textContent = data.conversations || '1';
     }
 }
 
-// Inicjalizacja WebSocket Manager
+// Initialize WebSocket manager
 let wsManager;
 
 document.addEventListener('DOMContentLoaded', function() {
-    // Utwórz WebSocket Manager
     wsManager = new WebSocketManager();
-    wsManager.connect();
     
-    // Event listener dla wysyłania wiadomości
+    // Event listeners
     const sendButton = document.getElementById('sendMessage');
     const messageInput = document.getElementById('messageInput');
-    const agentToggle = document.getElementById('useAgent');
     
-    if (sendButton) {
+    if (sendButton && messageInput) {
         sendButton.addEventListener('click', () => {
             const message = messageInput.value.trim();
             if (message) {
                 wsManager.displayMessage('user', message);
-                wsManager.sendMessage(message, agentToggle.checked);
+                wsManager.sendMessage(message);
                 messageInput.value = '';
             }
         });
-    }
-    
-    if (messageInput) {
+        
         messageInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
+            if (e.key === 'Enter') {
                 e.preventDefault();
                 sendButton.click();
             }
         });
     }
+    
+    // Update stats every 30 seconds
+    setInterval(() => wsManager.updateStats(), 30000);
 }); 
