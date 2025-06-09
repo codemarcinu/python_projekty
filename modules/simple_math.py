@@ -1,14 +1,20 @@
+"""
+Moduł zawierający podstawowe operacje matematyczne.
+"""
+
 from core.module_system import tool
 
 @tool
-def add(a: int, b: int) -> int:
+def add(a: float, b: float) -> float:
     """
-    Dodaje dwie liczby całkowite do siebie.
-    Użyj tego narzędzia, gdy użytkownik prosi o zsumowanie dwóch liczb.
+    Dodaje dwie liczby.
     
-    :param a: Pierwsza liczba do dodania.
-    :param b: Druga liczba do dodania.
-    :return: Suma liczb a i b.
+    Args:
+        a: Pierwsza liczba
+        b: Druga liczba
+        
+    Returns:
+        Suma liczb a i b
     """
     print(f"DEBUG: Wywołuję narzędzie 'add' z argumentami a={a}, b={b}")
     return a + b
@@ -24,4 +30,17 @@ def multiply(a: int, b: int) -> int:
     :return: Iloczyn liczb a i b.
     """
     print(f"DEBUG: Wywołuję narzędzie 'multiply' z argumentami a={a}, b={b}")
-    return a * b 
+    return a * b
+
+def subtract(a: float, b: float) -> float:
+    """
+    Odejmuje drugą liczbę od pierwszej.
+    
+    Args:
+        a: Liczba, od której odejmujemy
+        b: Liczba, którą odejmujemy
+        
+    Returns:
+        Różnica liczb a i b
+    """
+    return a - b 

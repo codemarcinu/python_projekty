@@ -8,6 +8,39 @@ from typing import List, Tuple
 from core.module_system import tool
 from core.database import DATABASE_FILE, get_db_connection
 
+class TaskManager:
+    """Klasa zarządzająca listą zadań."""
+    
+    def __init__(self):
+        """Inicjalizuje pustą listę zadań."""
+        self.tasks = []
+    
+    def add_task(self, task_description: str) -> str:
+        """Dodaje nowe zadanie do listy.
+        
+        Args:
+            task_description: Opis zadania do dodania
+            
+        Returns:
+            str: Potwierdzenie dodania zadania
+        """
+        self.tasks.append(task_description)
+        return f"Dodano zadanie: {task_description}"
+    
+    def list_tasks(self) -> str:
+        """Zwraca sformatowaną listę wszystkich zadań.
+        
+        Returns:
+            str: Sformatowana lista zadań lub informacja o braku zadań
+        """
+        if not self.tasks:
+            return "Brak zadań."
+            
+        task_list = "Lista zadań:\n"
+        for i, task in enumerate(self.tasks, 1):
+            task_list += f"{i}. {task}\n"
+        return task_list.rstrip()
+
 @tool
 def add_task(description: str) -> str:
     """
