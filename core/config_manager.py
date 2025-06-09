@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     # który lepiej radzi sobie z polskimi zapytaniami
     LLM_MODEL: str = "SpeakLeash/bielik-11b-v2.3-instruct:Q6_K"
     
+    # Klucz API do serwisu pogodowego OpenWeatherMap
+    WEATHER_API_KEY: str = ""
+    
     # Konfiguracja Pydantic - określa, że ustawienia będą wczytywane z pliku .env
     model_config = SettingsConfigDict(
         env_file=".env",

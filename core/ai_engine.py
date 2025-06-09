@@ -65,6 +65,7 @@ ZASADY POSTĘPOWANIA:
 - Kiedy chcesz użyć narzędzia, ZAWSZE odpowiadaj TYLKO I WYŁĄCZNIE obiektem JSON w formacie: {{"tool": "nazwa_narzedzia", "args": {{"arg1": "wartosc1", ...}}}}.
 - NIE WOLNO Ci dodawać żadnego tekstu przed ani po obiekcie JSON. Twoja odpowiedź musi być czystym JSON-em.
 - Jeśli nie chcesz używać narzędzia, odpowiedz użytkownikowi w normalny sposób, jako zwykły tekst.
+- Do zarządzania listą zadań (dodawanie, usuwanie, listowanie, oznaczanie jako wykonane) ZAWSZE używaj dostępnych narzędzi. Nigdy nie zarządzaj zadaniami w swojej własnej pamięci.
 
 PRZYKŁAD UŻYCIA NARZĘDZIA:
 Pytanie użytkownika: Ile to jest 5 dodać 7?
