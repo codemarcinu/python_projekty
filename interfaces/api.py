@@ -38,7 +38,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Tworzymy jedną, globalną instancję silnika, która będzie używana przez wszystkich
 # To wydajne, bo wtyczki ładują się tylko raz.
-engine = AIEngine(config_manager)
+engine = AIEngine(config_manager.settings)
 
 @app.on_event("startup")
 async def startup_event():

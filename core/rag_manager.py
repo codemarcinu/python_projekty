@@ -31,18 +31,18 @@ class RAGManager:
         vector_store: Magazyn wektorowy FAISS
     """
     
-    def __init__(self, config_manager) -> None:
+    def __init__(self, config):
         """Inicjalizuje menedżera RAG.
         
         Args:
-            config_manager: Menedżer konfiguracji aplikacji, zawierający ustawienia
+            config: Menedżer konfiguracji aplikacji, zawierający ustawienia
                           dla modelu embeddingów i innych parametrów RAG.
         """
-        self.config_manager = config_manager
+        self.config = config
         
         # Inicjalizacja modelu embeddingów z konfiguracji
         self.embeddings: Embeddings = OllamaEmbeddings(
-            model=config_manager.embedding_model_name
+            model=config.embedding_model_name
         )
         
         # Ścieżka do przechowywania indeksu wektorowego
@@ -68,8 +68,7 @@ class RAGManager:
             try:
                 self.vector_store = FAISS.load_local(
                     folder_path=str(self.index_path),
-                    embeddings=self.embeddings,
-                    allow_dangerous_deserialization=True
+                    embeddings=self.embeddings
                 )
                 print("Załadowano istniejący magazyn wektorowy.")
             except Exception as e:
@@ -141,10 +140,7 @@ class RAGManager:
             
             # Zapisanie zaktualizowanej bazy na dysku
             if self.vector_store is not None:  # Dodatkowe sprawdzenie dla mypy
-                self.vector_store.save_local(
-                    folder_path=str(self.index_path),
-                    allow_dangerous_deserialization=True
-                )
+                self.vector_store.save_local(self.index_path)
                 print("Baza wektorowa zapisana pomyślnie.")
             
         except (ValueError, FileNotFoundError) as e:
@@ -199,6 +195,6 @@ class RAGManager:
         Odpowiedź:"""
         
         # Użycie modelu do wygenerowania odpowiedzi
-        response = self.config_manager.llm_model.generate(prompt)
+        response = self.config.llm_model.generate(prompt)
         
         return response 

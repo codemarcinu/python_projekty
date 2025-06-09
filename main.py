@@ -1,66 +1,62 @@
 """
-Główny plik uruchomieniowy aplikacji.
-
-Ten moduł zawiera główną logikę uruchomieniową aplikacji oraz definicje komend CLI.
+Main entry point for the AI Assistant application.
+Handles both CLI and web server modes.
 """
+import asyncio
+import uvicorn
+from pathlib import Path
+from typing import Optional
 
 import typer
-from pathlib import Path
-import uvicorn
-from core.config_manager import config_manager
-from core.ai_engine import AIEngine
-from interfaces.api import app
+from rich.console import Console
 
-# Inicjalizacja aplikacji Typer
-cli = typer.Typer()
+from interfaces.cli import app as cli_app
+from interfaces.web_ui import app as web_app
 
-# Inicjalizacja silnika AI
-engine = AIEngine(config_manager.settings)
 
-@cli.command()
-def add_doc(file_path: str):
-    """
-    Dodaje dokument do bazy wiedzy.
-    
-    Args:
-        file_path (str): Ścieżka do pliku do dodania
-    """
-    try:
-        path = Path(file_path)
-        if not path.exists():
-            print(f"Błąd: Plik {file_path} nie istnieje")
-            return
-        
-        engine.rag_manager.add_document(path)
-        print(f"Dokument {file_path} został dodany do bazy wiedzy")
-    except Exception as e:
-        print(f"Błąd podczas dodawania dokumentu: {e}")
+# Initialize Typer app
+app = typer.Typer(help="AI Assistant")
 
-@cli.command()
-def rag(query: str):
-    """
-    Zadaje pytanie do bazy wiedzy.
-    
-    Args:
-        query (str): Pytanie do zadania
-    """
-    try:
-        response = engine.rag_manager.query(query)
-        print(f"Odpowiedź: {response}")
-    except Exception as e:
-        print(f"Błąd podczas przetwarzania zapytania: {e}")
+# Initialize Rich console
+console = Console()
 
-@cli.command()
-def serve(host: str = "127.0.0.1", port: int = 8000):
-    """
-    Uruchamia serwer FastAPI.
-    
-    Args:
-        host (str): Adres hosta
-        port (int): Port serwera
-    """
-    print(f"Uruchamianie serwera na {host}:{port}")
-    uvicorn.run(app, host=host, port=port)
+
+@app.command()
+def serve(
+    host: str = typer.Option(
+        "127.0.0.1",
+        "--host",
+        "-h",
+        help="Host to bind the web server to"
+    ),
+    port: int = typer.Option(
+        8000,
+        "--port",
+        "-p",
+        help="Port to bind the web server to"
+    ),
+    reload: bool = typer.Option(
+        False,
+        "--reload",
+        "-r",
+        help="Enable auto-reload on code changes"
+    )
+):
+    """Start the web server."""
+    console.print(f"[bold blue]Starting web server at http://{host}:{port}[/bold blue]")
+    uvicorn.run(
+        "interfaces.web_ui:app",
+        host=host,
+        port=port,
+        reload=reload
+    )
+
+
+@app.command()
+def cli():
+    """Start the CLI interface."""
+    cli_app()
+
 
 if __name__ == "__main__":
-    cli()
+    app()

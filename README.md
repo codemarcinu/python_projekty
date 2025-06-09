@@ -1,139 +1,135 @@
-# Lokalny Asystent AI
+# Modular AI Assistant
 
-## Opis
-Lokalny Asystent AI to nowoczesna, modularna aplikacja działająca w 100% lokalnie na urządzeniu użytkownika. Projekt kładzie szczególny nacisk na prywatność danych, wydajność oraz łatwość rozbudowy o nowe funkcje. Asystent wykorzystuje lokalne modele AI do prowadzenia naturalnych konwersacji i wykonywania zadań bez konieczności korzystania z zewnętrznych usług chmurowych.
+A modern, modular AI assistant that runs 100% locally on your device. Built with Python, this application provides both a web interface and a command-line interface for interacting with local language models through Ollama.
 
-## Aktualny Stan Projektu (v0.2)
-- ✅ Działający rdzeń konwersacyjny
-- ✅ Pamięć kontekstowa (asystent pamięta poprzednie części rozmowy)
-- ✅ Dynamiczny system wtyczek (narzędzi)
-- ✅ Działający interfejs w linii poleceń (CLI)
-- ✅ Podstawowa implementacja API (FastAPI)
-- ✅ System konfiguracji z walidacją (Pydantic)
-- ✅ Integracja z bazą danych SQLite
-- ✅ Podstawowy system zarządzania modelami LLM
-- ⏳ Interfejs webowy (w trakcie)
-- ⏳ System zdarzeń (w trakcie)
+## Features
 
-## Stack Technologiczny
-- **Język programowania**: Python 3.11+
-- **Silnik AI**: Ollama (lokalne modele LLM)
-- **Framework CLI**: Typer
-- **Walidacja danych**: Pydantic
-- **Orkiestracja AI**: LangChain
-- **Interfejs API**: FastAPI
-- **Baza danych**: SQLite
-- **Zarządzanie zależnościami**: Poetry (pyproject.toml)
+- **100% Local Operation**: All processing happens on your device, ensuring complete privacy
+- **Dual Interface**:
+  - Modern web interface with real-time chat
+  - Powerful command-line interface
+- **RAG System**: Add your own documents and ask questions about them
+- **Modular Architecture**: Easy to extend with new capabilities
+- **Multiple Model Support**: Works with any model available in Ollama
 
-## Instalacja i Uruchomienie
+## Prerequisites
 
-### Krok 1: Pobranie plików projektu
+- Python 3.11 or newer
+- [Ollama](https://ollama.com/) installed and running
+- A model downloaded in Ollama (e.g., `ollama pull llama2`)
+
+## Installation
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/yourusername/ai-assistant.git
+   cd ai-assistant
+   ```
+
+2. Create and activate a virtual environment:
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
+
+3. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. Create a `.env` file:
+   ```bash
+   cp .env.example .env
+   ```
+   Then edit `.env` to configure your settings.
+
+## Usage
+
+### Web Interface
+
+Start the web server:
 ```bash
-git clone [URL_REPOZYTORIUM]
-cd [NAZWA_KATALOGU]
+python main.py serve
 ```
+Then open your browser to `http://localhost:8000`
 
-### Krok 2: Konfiguracja środowiska wirtualnego
+### Command Line Interface
+
+Start an interactive chat session:
 ```bash
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# lub
-.\venv\Scripts\activate  # Windows
+python main.py cli
 ```
 
-### Krok 3: Instalacja zależności
+Process a RAG query:
 ```bash
-pip install -r requirements.txt
+python main.py rag "What is the main topic of my documents?"
 ```
 
-### Krok 4: Konfiguracja lokalnego LLM
-1. Zainstaluj [Ollama](https://ollama.ai/)
-2. Pobierz wybrany model (np. llama2):
+Add a document to the RAG system:
 ```bash
-ollama pull llama2
+python main.py add-doc path/to/your/document.pdf
 ```
 
-### Krok 5: Konfiguracja środowiska
-1. Skopiuj plik `.env.example` do `.env`:
+List all conversations:
 ```bash
-cp .env.example .env
-```
-2. Edytuj plik `.env` i ustaw nazwę modelu:
-```
-MODEL_NAME=llama2
+python main.py list-conversations
 ```
 
-## Sposób Użycia
-Aby uruchomić asystenta, wykonaj:
-```bash
-python interfaces/cli.py
-```
+## Project Structure
 
-Asystent rozpocznie konwersację w trybie interaktywnym. Możesz:
-- Zadawać pytania w języku naturalnym
-- Prosić o wykonanie zadań
-- Zakończyć rozmowę komendą "exit" lub "quit"
-
-## Dostępne Narzędzia (Wtyczki)
-
-### simple_math
-- `add`: Dodawanie dwóch liczb
-- `multiply`: Mnożenie dwóch liczb
-
-### datetime_tool
-- `get_current_datetime`: Zwraca aktualną datę i godzinę
-
-### database_tool
-- `query`: Wykonywanie zapytań SQL
-- `execute`: Wykonywanie operacji na bazie danych
-
-## Dalszy Rozwój (Roadmap)
-
-### Etap 1: Rozbudowa Zdolności Agentowych (W TRAKCIE)
-- ✅ Integracja z bazą danych SQLite
-- ⏳ Integracja z API pogody
-- ⏳ Wyszukiwarka internetowa
-- ⏳ Obsługa kalendarza
-- ⏳ System przypomnień
-
-### Etap 2: Implementacja Modułów Aplikacji (W TRAKCIE)
-- ⏳ Rozwój modułu `personal_assistant`
-  - System zarządzania zadaniami
-  - Integracja z bazą danych SQLite
-  - System powiadomień
-- ⏳ Rozwój modułu `household_manager`
-  - Zarządzanie zakupami
-  - Obsługa przepisów
-  - Integracja OCR
-
-### Etap 3: Stworzenie Interfejsu Webowego (W TRAKCIE)
-- ⏳ Implementacja `interfaces/web_ui.py`
-- ✅ Podstawowa implementacja `interfaces/api.py`
-- ⏳ Panel administracyjny
-- ⏳ Dokumentacja API
-
-### Etap 4: Zaawansowana Komunikacja Wewnętrzna (W TRAKCIE)
-- ⏳ Implementacja `core/event_bus.py`
-- ⏳ System kolejkowania zadań
-- ⏳ Mechanizm synchronizacji między modułami
-- ⏳ Obsługa zdarzeń asynchronicznych
-
-## Struktura Projektu
 ```
 /
-├── core/                    # Rdzeń aplikacji
-│   ├── ai_engine.py        # Główny silnik AI
-│   ├── llm_manager.py      # Zarządzanie modelami LLM
-│   ├── conversation_handler.py # Obsługa konwersacji
-│   ├── plugin_system.py    # System wtyczek
-│   ├── config_manager.py   # Zarządzanie konfiguracją
-│   ├── database.py         # Obsługa bazy danych
-│   └── event_bus.py        # System zdarzeń (w trakcie)
-├── interfaces/             # Interfejsy aplikacji
-│   ├── cli.py             # Interfejs CLI
-│   ├── api.py             # API FastAPI
-│   └── web_ui.py          # Interfejs webowy (w trakcie)
-├── modules/               # Moduły funkcjonalne
-├── data/                 # Dane użytkownika i baza SQLite
-└── plugins/              # Wtyczki i narzędzia
-``` 
+├── core/                 # Core application components
+│   ├── ai_engine.py     # Main AI orchestration
+│   ├── llm_manager.py   # LLM interaction
+│   ├── conversation_handler.py  # Chat history management
+│   └── config_manager.py  # Configuration management
+├── interfaces/          # User interfaces
+│   ├── web_ui.py       # FastAPI web interface
+│   └── cli.py          # Typer CLI interface
+├── modules/            # Extensible modules
+├── data/              # User data and vector store
+├── templates/         # HTML templates
+├── static/           # Static web assets
+├── main.py           # Application entry point
+└── requirements.txt  # Project dependencies
+```
+
+## Configuration
+
+The application is configured through environment variables in the `.env` file:
+
+```env
+# LLM Settings
+LLM_MODEL=llama2
+LLM_TEMPERATURE=0.7
+LLM_MAX_TOKENS=2000
+
+# RAG Settings
+RAG_CHUNK_SIZE=1000
+RAG_CHUNK_OVERLAP=200
+RAG_EMBEDDING_MODEL=all-MiniLM-L6-v2
+
+# Web Interface
+WEB_HOST=127.0.0.1
+WEB_PORT=8000
+```
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Acknowledgments
+
+- [Ollama](https://ollama.com/) for providing the local LLM infrastructure
+- [LangChain](https://python.langchain.com/) for AI orchestration
+- [FastAPI](https://fastapi.tiangolo.com/) for the web framework
+- [Typer](https://typer.tiangolo.com/) for the CLI framework 
