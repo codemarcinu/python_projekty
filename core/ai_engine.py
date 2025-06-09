@@ -47,7 +47,7 @@ class AIEngine:
 
         # Sprawdźmy, czy odpowiedź to DOKŁADNIE nazwa jednego z narzędzi
         for tool_name in _tools:
-            if tool_name.lower() == response_lower:
+            if tool_name.lower() in response_lower:
                 print(f"DEBUG: Router wybrał narzędzie: {tool_name}")
                 return tool_name
 
