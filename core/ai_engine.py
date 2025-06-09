@@ -9,7 +9,7 @@ from typing import List, Dict, Any, Optional
 import json
 from pathlib import Path
 from .llm_manager import LLMManager
-from .plugin_system import load_plugins, get_tool
+from .plugin_system import load_plugins, get_tool, get_available_tools
 
 
 class AIEngine:
@@ -48,8 +48,7 @@ class AIEngine:
         Returns:
             List[str]: Lista nazw narzędzi.
         """
-        # TODO: Implementacja pobierania listy narzędzi z plugin_system
-        return []
+        return get_available_tools()
 
     def _create_system_prompt(self) -> str:
         """Tworzy prompt systemowy dla modelu LLM.

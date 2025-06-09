@@ -1,4 +1,4 @@
-from typing import Dict, Callable, Any
+from typing import Dict, Callable, Any, List
 import importlib
 import os
 from functools import wraps
@@ -38,6 +38,14 @@ def get_tool(name: str) -> Callable:
     if name not in _tools:
         raise KeyError(f"Narzędzie '{name}' nie zostało znalezione")
     return _tools[name]
+
+def get_available_tools() -> List[str]:
+    """Zwraca listę nazw wszystkich dostępnych narzędzi.
+    
+    Returns:
+        List[str]: Lista nazw zarejestrowanych narzędzi.
+    """
+    return list(_tools.keys())
 
 def load_plugins(plugin_dir: str) -> None:
     """Dynamicznie ładuje wszystkie moduły .py z podanego katalogu.
