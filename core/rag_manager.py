@@ -42,7 +42,7 @@ class RAGManager:
         
         # Inicjalizacja modelu embeddingów z konfiguracji
         self.embeddings: Embeddings = OllamaEmbeddings(
-            model=config.embedding_model_name
+            model=config.embedding_model
         )
         
         # Ścieżka do przechowywania indeksu wektorowego
@@ -278,3 +278,15 @@ class RAGManager:
             return True
             
         return False 
+
+    def init_empty_index(self) -> None:
+        """Tworzy pusty indeks FAISS, jeśli nie istnieje."""
+        index_file = self.index_path / "index.faiss"
+        if index_file.exists():
+            print("Indeks FAISS już istnieje.")
+            return
+        print("Tworzę pusty indeks FAISS...")
+        # Tworzymy pustą bazę wektorową FAISS
+        self.vector_store = FAISS.from_texts([], self.embeddings)
+        self.vector_store.save_local(str(self.index_path))
+        print(f"Pusty indeks FAISS utworzony w {self.index_path}") 

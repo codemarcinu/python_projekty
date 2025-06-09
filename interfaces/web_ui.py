@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import List, Optional
 from uuid import uuid4
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -39,7 +39,7 @@ class ChatResponse(BaseModel):
 
 
 @app.get("/", response_class=HTMLResponse)
-async def get_chat_interface(request):
+async def get_chat_interface(request: Request):
     """Serve the chat interface."""
     return templates.TemplateResponse(
         "chat.html",

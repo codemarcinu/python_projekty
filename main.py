@@ -11,8 +11,8 @@ from typing import Optional
 import typer
 from rich.console import Console
 
-from interfaces.cli import app as cli_app
-from interfaces.web_ui import app as web_app
+from core.rag_manager import RAGManager
+from core.config_manager import get_settings
 
 # Configure logging
 logging.basicConfig(
@@ -50,6 +50,7 @@ def serve(
     )
 ):
     """Start the web server."""
+    from interfaces.web_ui import app as web_app
     console.print(f"[bold blue]Starting web server at http://{host}:{port}[/bold blue]")
     uvicorn.run(
         "interfaces.web_ui:app",
@@ -62,7 +63,18 @@ def serve(
 @app.command()
 def cli():
     """Start the CLI interface."""
+    from interfaces.cli import app as cli_app
     cli_app()
+
+
+@app.command()
+def init_vector_db():
+    """Inicjalizuje pusty indeks FAISS (baza wiedzy)."""
+    console.print("[bold yellow]Inicjalizacja pustego indeksu FAISS...[/bold yellow]")
+    config = get_settings().rag
+    rag_manager = RAGManager(config)
+    rag_manager.init_empty_index()
+    console.print("[bold green]Indeks FAISS gotowy![/bold green]")
 
 
 if __name__ == "__main__":

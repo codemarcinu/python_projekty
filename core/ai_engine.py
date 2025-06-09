@@ -9,6 +9,7 @@ from langchain.memory import ConversationBufferMemory
 from langchain.prompts import PromptTemplate
 from langchain.vectorstores import FAISS
 from langchain.embeddings import HuggingFaceEmbeddings
+import torch
 
 from .config_manager import get_settings
 from .conversation_handler import Conversation
@@ -28,14 +29,27 @@ class AIEngine:
         """Set up LangChain chains and prompts."""
         # Initialize embeddings
         embeddings = HuggingFaceEmbeddings(
-            model_name=self.settings.rag.embedding_model
+            model_name="all-MiniLM-L6-v2",
+            model_kwargs={"device": "cuda" if torch.cuda.is_available() else "cpu"},
         )
         
         # Initialize vector store
-        vector_store = FAISS.load_local(
-            self.settings.rag.vector_db_path,
-            embeddings
-        )
+        try:
+            vector_store = FAISS.load_local(
+                self.settings.rag.vector_db_path,
+                embeddings
+            )
+        except RuntimeError:
+            # Jeśli indeks nie istnieje, tworzymy pusty
+            print("Indeks FAISS nie istnieje, tworzę pusty indeks...")
+            # Tworzymy indeks z jednym pustym tekstem, aby uniknąć błędu
+            vector_store = FAISS.from_texts(
+                ["Initial empty document"],
+                embeddings,
+                metadatas=[{"source": "system"}]
+            )
+            vector_store.save_local(self.settings.rag.vector_db_path)
+            print("Pusty indeks FAISS utworzony.")
         
         # Basic conversation chain
         self.conversation_chain = ConversationalRetrievalChain.from_llm(

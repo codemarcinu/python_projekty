@@ -17,7 +17,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class LLMSettings(BaseModel):
     """Settings for LLM configuration."""
     provider: str = Field(default="ollama", description="LLM provider (e.g., ollama, vllm)")
-    model_name: str = Field(default="llama2", description="Name of the model to use")
+    model_name: str = Field(default="llama2:13b", description="Name of the model to use")
     ollama_host: str = Field(default="http://localhost:11434", description="Ollama API host")
     temperature: float = Field(default=0.7, ge=0.0, le=1.0, description="Temperature for model generation")
     max_tokens: int = Field(default=2000, gt=0, description="Maximum tokens in response")
