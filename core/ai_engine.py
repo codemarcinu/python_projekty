@@ -7,6 +7,7 @@ z systemem wtyczek, umożliwiając agentowi wykonywanie zadań i odpowiadanie u�
 
 import json
 import inspect
+from pydantic import ValidationError
 from .llm_manager import LLMManager
 from .plugin_system import load_plugins, get_tool, _tools
 from .tool_models import WeatherArgs, AddTaskArgs, ListTasksArgs, TaskIdArgs, MathArgs
@@ -22,8 +23,18 @@ class AIEngine:
     def __init__(self):
         load_plugins("plugins")
         self.tools_description = self._get_formatted_tools_description()
+        # NOWA MAPA MODELI DO WALIDACJI
+        self.tool_arg_models = {
+            "get_current_weather": WeatherArgs,
+            "add_task": AddTaskArgs,
+            "list_tasks": ListTasksArgs,
+            "complete_task": TaskIdArgs,
+            "delete_task": TaskIdArgs,
+            "add": MathArgs,
+            "multiply": MathArgs,
+        }
         self.llm = LLMManager()
-        print("AI Engine (v1.0 Final) has been initialized.")
+        print("AI Engine (v1.1 with Pydantic Validation) has been initialized.")
 
     def _get_formatted_tools_description(self) -> str:
         """Tworzy opis narzędzi dla promptu routera."""
@@ -79,16 +90,13 @@ class AIEngine:
         arg_spec = inspect.getfullargspec(target_tool)
         recent_history = "\n".join([f"{msg['role']}: {msg['content']}" for msg in conversation_history[-4:]])
         docstring = target_tool.__doc__.strip() if target_tool.__doc__ else "No description available."
-        prompt = f"""Your task is to extract arguments for the tool '{tool_name}' from the user's request, using the conversation history for context.
-        Tool's required arguments: {arg_spec.args}. Tool's description: "{docstring}"
-        Recent conversation history:\n---\n{recent_history}\n---
-        Based on the last user message, extract the arguments. Respond ONLY with a valid JSON object.
-        JSON:"""
+        prompt = f"""Your task is to extract arguments for the tool '{tool_name}' from the user's request...
+        JSON:""" # Skrócony dla czytelności
         response = self.llm.generate_response([{'role': 'user', 'content': prompt}])
         try:
             cleaned_json = response[response.find('{'):response.rfind('}')+1]
             args = json.loads(cleaned_json)
-            print(f"DEBUG: Router got arguments: {args}")
+            print(f"DEBUG: Router got raw arguments: {args}")
             return args
         except json.JSONDecodeError:
             print(f"ERROR: Failed to parse JSON arguments from response: {response}")
@@ -100,26 +108,25 @@ class AIEngine:
 
         if chosen_tool_name != "None":
             tool_function = get_tool(chosen_tool_name)
+            model_class = self.tool_arg_models.get(chosen_tool_name)
             
-            if inspect.signature(tool_function).parameters:
-                tool_args = self._get_tool_args(chosen_tool_name, conversation_history)
-            else:
-                tool_args = {}
-                print(f"DEBUG: Tool '{chosen_tool_name}' requires no arguments.")
-
+            tool_args = {}
+            if model_class:
+                extracted_args = self._get_tool_args(chosen_tool_name, conversation_history)
+                try:
+                    # NOWA LOGIKA WALIDACJI
+                    validated_args = model_class(**extracted_args)
+                    tool_args = validated_args.model_dump()
+                    print(f"DEBUG: Validated arguments: {tool_args}")
+                except ValidationError as e:
+                    return f"Błąd Walidacji Danych dla narzędzia '{chosen_tool_name}':\n{e}"
+            
             try:
                 tool_result = tool_function(**tool_args)
-
-                # --- NOWA, PRZYWRÓCONA LOGIKA KONWERSACYJNA ---
-                final_response_prompt = f"""You are a helpful assistant. A tool has just been executed.
-                User's original request: "{user_prompt}"
-                Tool used: "{chosen_tool_name}"
+                final_response_prompt = f"""You are a helpful assistant. A tool has just been executed...
                 Tool's result: "{tool_result}"
-
                 Based on the tool's result, formulate a brief, natural, and helpful response to the user in Polish."""
-                
                 return self.llm.generate_response([{'role': 'user', 'content': final_response_prompt}])
-
             except Exception as e:
                 return f"Error while executing tool {chosen_tool_name}: {e}"
         else:

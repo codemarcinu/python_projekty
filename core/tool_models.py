@@ -1,3 +1,8 @@
+"""
+Ten plik zawiera modele Pydantic służące jako "kontrakty" 
+do walidacji argumentów przekazywanych do narzędzi przez AI.
+"""
+
 from pydantic import BaseModel, Field
 from typing import List, Union
 
