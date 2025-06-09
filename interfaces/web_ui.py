@@ -7,6 +7,7 @@ from typing import List, Optional
 from uuid import uuid4
 from datetime import datetime
 import logging
+import json
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException, Request
 from fastapi.responses import HTMLResponse
@@ -59,18 +60,26 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
     
     try:
         while True:
-            # Receive message
-            data = await websocket.receive_json()
-            message = data.get("message", "")
-            use_agent = data.get("use_agent", False)
-            
-            if not message.strip():
-                await websocket.send_json({
-                    "error": "Wiadomość nie może być pusta"
-                })
-                continue
-            
             try:
+                # Receive message
+                data = await websocket.receive_json()
+                
+                # Validate message format
+                if not isinstance(data, dict):
+                    await websocket.send_json({
+                        "error": "Nieprawidłowy format wiadomości. Oczekiwano obiektu JSON."
+                    })
+                    continue
+                
+                message = data.get("message", "")
+                use_agent = data.get("use_agent", False)
+                
+                if not message or not isinstance(message, str):
+                    await websocket.send_json({
+                        "error": "Wiadomość nie może być pusta i musi być tekstem."
+                    })
+                    continue
+                
                 # Process message through AI engine
                 ai_engine = get_ai_engine()
                 response = await ai_engine.process_message(
@@ -86,6 +95,11 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
                     "timestamp": datetime.now().isoformat()
                 })
                 
+            except json.JSONDecodeError:
+                logger.error("Received invalid JSON from client")
+                await websocket.send_json({
+                    "error": "Nieprawidłowy format JSON. Oczekiwano obiektu JSON."
+                })
             except Exception as e:
                 logger.error(f"Error processing message: {e}")
                 await websocket.send_json({
