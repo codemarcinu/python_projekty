@@ -23,7 +23,7 @@ class AIEngine:
         load_plugins("plugins")
         self.tools_description = self._get_formatted_tools_description()
         self.llm = LLMManager()
-        print("AI Engine (Context-Aware Router) has been initialized.")
+        print("AI Engine (v1.0 Final) has been initialized.")
 
     def _get_formatted_tools_description(self) -> str:
         """Tworzy opis narzędzi dla promptu routera."""
@@ -63,26 +63,27 @@ class AIEngine:
         return "None"
 
     def _get_tool_args(self, tool_name: str, conversation_history: List[Dict[str, str]]) -> Dict[str, Any]:
+        # --- NOWA, ULEPSZONA LOGIKA ---
+        user_prompt = conversation_history[-1]['content']
+        # Sprawdzanie słów kluczowych dla operacji masowych
+        if tool_name in ["complete_task", "delete_task"] and any(word in user_prompt.lower() for word in ["wszystkie", "wszystko", "każde", "all"]):
+            print("DEBUG: Wykryto polecenie masowe. Pobieram wszystkie ID zadań.")
+            all_tasks_str = get_tool("list_tasks")()
+            # Prosta metoda na wyciągnięcie ID z wyniku list_tasks
+            task_ids = [int(line.split(']')[0].split('[ID: ')[1]) for line in all_tasks_str.split('\n') if line.startswith('- [ID:')]
+            if task_ids:
+                return {"task_ids": task_ids}
+
+        # Standardowa logika, jeśli nie wykryto polecenia masowego
         target_tool = get_tool(tool_name)
         arg_spec = inspect.getfullargspec(target_tool)
-        user_prompt = conversation_history[-1]['content']
-        
-        # Formatuj ostatnie 4 wiadomości jako kontekst dla ekstraktora
         recent_history = "\n".join([f"{msg['role']}: {msg['content']}" for msg in conversation_history[-4:]])
-
         docstring = target_tool.__doc__.strip() if target_tool.__doc__ else "No description available."
         prompt = f"""Your task is to extract arguments for the tool '{tool_name}' from the user's request, using the conversation history for context.
-        Tool's required arguments: {arg_spec.args}
-        Tool's description: "{docstring}"
-
-        Recent conversation history:
-        ---
-        {recent_history}
-        ---
-
-        Based on the last user message, extract the arguments. Respond ONLY with a valid JSON object. If no arguments are needed or can be found, respond with an empty JSON object {{}}.
+        Tool's required arguments: {arg_spec.args}. Tool's description: "{docstring}"
+        Recent conversation history:\n---\n{recent_history}\n---
+        Based on the last user message, extract the arguments. Respond ONLY with a valid JSON object.
         JSON:"""
-        
         response = self.llm.generate_response([{'role': 'user', 'content': prompt}])
         try:
             cleaned_json = response[response.find('{'):response.rfind('}')+1]
@@ -94,27 +95,32 @@ class AIEngine:
             return {}
 
     def process_turn(self, conversation_history: List[Dict[str, str]]) -> str:
-        # Krok 1: Router wybiera narzędzie na podstawie historii
+        user_prompt = conversation_history[-1]['content']
         chosen_tool_name = self._choose_tool(conversation_history)
 
         if chosen_tool_name != "None":
             tool_function = get_tool(chosen_tool_name)
             
-            # Krok 2: Ekstraktor argumentów również używa historii
             if inspect.signature(tool_function).parameters:
                 tool_args = self._get_tool_args(chosen_tool_name, conversation_history)
             else:
                 tool_args = {}
                 print(f"DEBUG: Tool '{chosen_tool_name}' requires no arguments.")
 
-            # Krok 3: Wykonanie narzędzia
             try:
-                result = tool_function(**tool_args)
-                # Na razie wciąż zwracamy surowy wynik dla niezawodności
-                # W przyszłości dodamy tu warstwę konwersacyjną
-                return str(result)
+                tool_result = tool_function(**tool_args)
+
+                # --- NOWA, PRZYWRÓCONA LOGIKA KONWERSACYJNA ---
+                final_response_prompt = f"""You are a helpful assistant. A tool has just been executed.
+                User's original request: "{user_prompt}"
+                Tool used: "{chosen_tool_name}"
+                Tool's result: "{tool_result}"
+
+                Based on the tool's result, formulate a brief, natural, and helpful response to the user in Polish."""
+                
+                return self.llm.generate_response([{'role': 'user', 'content': final_response_prompt}])
+
             except Exception as e:
                 return f"Error while executing tool {chosen_tool_name}: {e}"
         else:
-            # Jeśli żadne narzędzie nie zostało wybrane, prowadź normalną rozmowę
             return self.llm.generate_response(conversation_history)

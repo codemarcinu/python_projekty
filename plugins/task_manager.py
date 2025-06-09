@@ -63,55 +63,59 @@ def list_tasks(status: str = 'todo') -> str:
         return f"Wystąpił błąd podczas wyświetlania zadań: {e}"
 
 @tool
-def complete_task(task_id: int) -> str:
+def complete_task(task_ids: List[int]) -> str:
     """
-    Oznacza zadanie jako wykonane.
-    Użyj, gdy użytkownik chce oznaczyć zadanie jako zakończone.
+    Oznacza zadania jako wykonane.
+    Użyj, gdy użytkownik chce oznaczyć zadania jako zakończone.
 
     Args:
-        task_id: ID zadania do oznaczenia jako wykonane.
+        task_ids: Lista ID zadań do oznaczenia jako wykonane.
 
     Returns:
         str: Komunikat potwierdzający zmianę statusu lub informacja o błędzie.
     """
-    print(f"DEBUG: Wywołuję narzędzie 'complete_task' dla zadania ID: {task_id}")
+    print(f"DEBUG: Wywołuję narzędzie 'complete_task' dla zadań ID: {task_ids}")
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("UPDATE tasks SET status = 'done' WHERE id = ?", (task_id,))
+        placeholders = ','.join('?' * len(task_ids))
+        query = f"UPDATE tasks SET status = 'done' WHERE id IN ({placeholders})"
+        cursor.execute(query, tuple(task_ids))
         if cursor.rowcount == 0:
             conn.close()
-            return f"Nie znaleziono zadania o ID {task_id}."
+            return f"Nie znaleziono zadań o podanych ID."
         
         conn.commit()
         conn.close()
-        return f"Pomyślnie oznaczono zadanie {task_id} jako wykonane."
+        return f"Pomyślnie oznaczono {cursor.rowcount} zadań jako wykonane."
     except Exception as e:
-        return f"Wystąpił błąd podczas aktualizacji statusu zadania: {e}"
+        return f"Wystąpił błąd podczas aktualizacji statusu zadań: {e}"
 
 @tool
-def delete_task(task_id: int) -> str:
+def delete_task(task_ids: List[int]) -> str:
     """
-    Usuwa zadanie o podanym ID z bazy danych.
-    Użyj, gdy użytkownik chce usunąć zadanie z listy.
+    Usuwa zadania o podanych ID z bazy danych.
+    Użyj, gdy użytkownik chce usunąć zadania z listy.
 
     Args:
-        task_id: ID zadania do usunięcia.
+        task_ids: Lista ID zadań do usunięcia.
 
     Returns:
         str: Komunikat potwierdzający usunięcie lub informacja o błędzie.
     """
-    print(f"DEBUG: Wywołuję narzędzie 'delete_task' dla zadania ID: {task_id}")
+    print(f"DEBUG: Wywołuję narzędzie 'delete_task' dla zadań ID: {task_ids}")
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+        placeholders = ','.join('?' * len(task_ids))
+        query = f"DELETE FROM tasks WHERE id IN ({placeholders})"
+        cursor.execute(query, tuple(task_ids))
         if cursor.rowcount == 0:
             conn.close()
-            return f"Nie znaleziono zadania o ID {task_id}."
+            return f"Nie znaleziono zadań o podanych ID."
         
         conn.commit()
         conn.close()
-        return f"Pomyślnie usunięto zadanie {task_id}."
+        return f"Pomyślnie usunięto {cursor.rowcount} zadań."
     except Exception as e:
-        return f"Wystąpił błąd podczas usuwania zadania: {e}" 
+        return f"Wystąpił błąd podczas usuwania zadań: {e}" 
