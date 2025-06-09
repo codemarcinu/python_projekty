@@ -6,60 +6,45 @@ wykorzystującej bibliotekę Typer do obsługi argumentów wiersza poleceń.
 """
 
 import typer
-from typing import Optional
-from core.conversation_handler import ConversationHandler
+from rich.console import Console
 from core.ai_engine import AIEngine
+from core.conversation_handler import ConversationHandler
 from core.database import init_db
 
 # Inicjalizacja aplikacji Typer
 app = typer.Typer()
+console = Console()
 
 
 @app.command()
-def main() -> None:
-    """Główna funkcja interfejsu CLI asystenta AI.
-    
-    Implementuje pętlę konwersacji, która:
-    1. Inicjalizuje bazę danych
-    2. Pobiera wiadomość od użytkownika
-    3. Przekazuje ją do silnika AI
-    4. Wyświetla odpowiedź
-    5. Zachowuje historię konwersacji
-    
-    Aby zakończyć konwersację, wpisz 'koniec' lub 'wyjdz'.
+def main():
     """
-    # Inicjalizacja bazy danych
-    try:
-        init_db()
-        print("Baza danych zainicjalizowana pomyślnie.")
-    except Exception as e:
-        print(f"Błąd podczas inicjalizacji bazy danych: {e}")
-        return
-    
-    # Inicjalizacja komponentów
-    handler = ConversationHandler()
+    Uruchamia główną pętlę interaktywnego czatu z asystentem AI.
+    """
+    # Inicjalizuj bazę danych TYLKO RAZ przy starcie.
+    init_db()
+
     engine = AIEngine()
-    
-    print("Witaj! Jestem Twoim lokalnym asystentem AI. Aby zakończyć konwersację, wpisz 'koniec' lub 'wyjdz'.")
-    
+    handler = ConversationHandler()
+
+    console.print("[bold cyan]Witaj! Jestem Twoim lokalnym asystentem AI.[/bold cyan]")
+    console.print("Aby zakończyć konwersację, wpisz 'koniec' lub 'wyjdz'.")
+
     while True:
-        # Pobierz wiadomość od użytkownika
-        user_input = input("\nTy: ").strip()
-        
-        # Sprawdź czy użytkownik chce zakończyć
-        if user_input.lower() in ['koniec', 'wyjdz']:
-            print("\nDo widzenia!")
+        prompt = console.input("[bold green]Ty: [/bold green]")
+
+        if prompt.lower() in ["koniec", "wyjdz", "exit"]:
+            console.print("[bold cyan]Do widzenia![/bold cyan]")
             break
-        
-        # Dodaj wiadomość użytkownika do historii
-        handler.add_message('user', user_input)
-        
-        # Przetwórz turę konwersacji przez silnik AI
+
+        handler.add_message(role="user", content=prompt)
+
+        console.print("[yellow]Asystent myśli...[/yellow]", end="\r")
         final_response = engine.process_turn(handler.get_history())
-        
-        # Wyświetl odpowiedź i dodaj ją do historii
-        print(f"\nAsystent: {final_response}")
-        handler.add_message('assistant', final_response)
+        console.print(" " * 20, end="\r") # Wyczyść "Asystent myśli..."
+
+        console.print(f"[bold blue]Asystent:[/bold blue] {final_response}")
+        handler.add_message(role="assistant", content=final_response)
 
 
 if __name__ == "__main__":
