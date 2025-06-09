@@ -8,7 +8,7 @@ wykorzystującej bibliotekę Typer do obsługi argumentów wiersza poleceń.
 import typer
 from typing import Optional
 from core.conversation_handler import ConversationHandler
-from core.llm_manager import LLMManager
+from core.ai_engine import AIEngine
 
 # Inicjalizacja aplikacji Typer
 app = typer.Typer()
@@ -20,15 +20,15 @@ def main() -> None:
     
     Implementuje pętlę konwersacji, która:
     1. Pobiera wiadomość od użytkownika
-    2. Przekazuje ją do modelu AI
+    2. Przekazuje ją do silnika AI
     3. Wyświetla odpowiedź
     4. Zachowuje historię konwersacji
     
     Aby zakończyć konwersację, wpisz 'koniec' lub 'wyjdz'.
     """
     # Inicjalizacja komponentów
-    llm = LLMManager()
     handler = ConversationHandler()
+    engine = AIEngine()
     
     print("Witaj! Jestem Twoim lokalnym asystentem AI. Aby zakończyć konwersację, wpisz 'koniec' lub 'wyjdz'.")
     
@@ -44,13 +44,12 @@ def main() -> None:
         # Dodaj wiadomość użytkownika do historii
         handler.add_message('user', user_input)
         
-        # Pobierz historię i wygeneruj odpowiedź
-        history = handler.get_history()
-        response = llm.generate_response(history)
+        # Przetwórz turę konwersacji przez silnik AI
+        final_response = engine.process_turn(handler.get_history())
         
         # Wyświetl odpowiedź i dodaj ją do historii
-        print(f"\nAsystent: {response}")
-        handler.add_message('assistant', response)
+        print(f"\nAsystent: {final_response}")
+        handler.add_message('assistant', final_response)
 
 
 if __name__ == "__main__":
