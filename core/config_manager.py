@@ -8,6 +8,7 @@ oraz zapewnia dostęp do tych ustawień w całej aplikacji.
 from typing import Literal
 from functools import lru_cache
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pathlib import Path
 
 
 class Settings(BaseSettings):
@@ -28,6 +29,9 @@ class Settings(BaseSettings):
     
     # Klucz API do serwisu pogodowego OpenWeatherMap
     WEATHER_API_KEY: str = ""
+    
+    # Ścieżka do bazy danych SQLite
+    DB_PATH: str = str(Path("data/main.db"))
     
     # Konfiguracja Pydantic - określa, że ustawienia będą wczytywane z pliku .env
     model_config = SettingsConfigDict(

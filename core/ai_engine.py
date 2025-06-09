@@ -5,115 +5,91 @@ Ten moduł implementuje klasę AIEngine, która koordynuje działanie modelu ję
 z systemem wtyczek, umożliwiając agentowi wykonywanie zadań i odpowiadanie użytkownikowi.
 """
 
-from typing import List, Dict, Any, Optional
 import json
-from pathlib import Path
+import inspect
 from .llm_manager import LLMManager
-from .plugin_system import load_plugins, get_tool, get_available_tools
+from .plugin_system import load_plugins, get_tool, _tools
+from typing import List, Dict, Any
 
 
 class AIEngine:
-    """Główny silnik AI zarządzający logiką agenta i integracją z narzędziami."""
+    """
+    Główny silnik AI, działający w oparciu o architekturę "Routera Narzędzi".
+    Najpierw decyduje, czy użyć narzędzia, a dopiero potem wykonuje akcję.
+    """
 
-    def __init__(self, plugins_dir: str = "plugins") -> None:
-        """Inicjalizuje silnik AI.
-        
-        Args:
-            plugins_dir (str): Ścieżka do katalogu zawierającego wtyczki.
-        """
-        # Inicjalizacja menedżera LLM
+    def __init__(self):
+        load_plugins("plugins")
+        self.tools_description = self._get_formatted_tools_description()
         self.llm = LLMManager()
-        
-        # Ładowanie wtyczek
-        load_plugins(plugins_dir)
-        
-        # Przygotowanie opisu narzędzi dla promptu
-        self.tools_description = self._prepare_tools_prompt()
-        
-        # Ustawienie promptu systemowego
-        self.system_prompt = f"""Jesteś pomocnym asystentem AI z dostępem do narzędzi.
-OTO DOSTĘPNE NARZĘDZIA:
-{self.tools_description}
+        print("Silnik AI (Super-Prosty Router) został zainicjalizowany.")
 
-ZASADY POSTĘPOWANIA:
-- Kiedy chcesz użyć narzędzia, Twoja odpowiedź MUSI zaczynać się od specjalnego znacznika `TOOL_CALL::`, po którym natychmiast następuje obiekt JSON.
-- Przykład: `TOOL_CALL::{{"tool": "nazwa_narzedzia", "args": {{"arg1": "wartosc1"}}}}`
-- NIE WOLNO Ci dodawać żadnego tekstu przed znacznikiem `TOOL_CALL::`.
-- Do zarządzania listą zadań ZAWSZE używaj dostępnych narzędzi.
-- Jeśli nie używasz narzędzia, po prostu odpowiedz użytkownikowi w formie zwykłego tekstu.
-"""
+    def _get_formatted_tools_description(self) -> str:
+        """Tworzy opis narzędzi dla promptu routera."""
+        descriptions = []
+        for name, func in _tools.items():
+            docstring = func.__doc__.strip() if func.__doc__ else "Brak opisu."
+            descriptions.append(f"- {name}: {docstring}")
+        return "\n".join(descriptions)
 
-    def _prepare_tools_prompt(self) -> str:
-        """Przygotowuje opis dostępnych narzędzi w formacie tekstowym.
+    def _choose_tool(self, user_prompt: str) -> str:
+        # OSTATECZNY, NAJPROSTSZY MOŻLIWY PROMPT
+        tool_names = ", ".join(_tools.keys())
+        prompt = f"""Odpowiedz jednym słowem. Które z tych narzędzi: [{tool_names}, None] najlepiej pasuje do prośby użytkownika?
+
+        Prośba: "{user_prompt}"
+        Narzędzie:"""
+
+        response = self.llm.generate_response([{'role': 'user', 'content': prompt}])
         
-        Returns:
-            str: Sformatowany opis narzędzi do użycia w promptcie.
+        # BARDZIEJ ODPORNA METODA PARSOWANIA
+        response_lower = response.lower().strip().replace('"', '').replace("'", "").replace(".", "")
+
+        # Sprawdźmy, czy odpowiedź to DOKŁADNIE nazwa jednego z narzędzi
+        for tool_name in _tools:
+            if tool_name.lower() == response_lower:
+                print(f"DEBUG: Router wybrał narzędzie: {tool_name}")
+                return tool_name
+
+        print(f"DEBUG: Router nie wybrał żadnego narzędzia (odpowiedź AI: '{response}')")
+        return "None"
+
+    def _get_tool_args(self, tool_name: str, user_prompt: str) -> Dict[str, Any]:
+        """Etap 2a: Wydobycie argumentów dla wybranego narzędzia."""
+        target_tool = get_tool(tool_name)
+        arg_spec = inspect.getfullargspec(target_tool)
+        
+        prompt = f"""Twoim zadaniem jest wydobycie argumentów dla narzędzia '{tool_name}' z prośby użytkownika.
+        Wymagane argumenty: {arg_spec.args}
+        Prośba użytkownika: "{user_prompt}"
+        Odpowiedz TYLKO I WYŁĄCZNIE poprawnym obiektem JSON.
         """
-        tools_description = ""
-        for tool_name in self._get_available_tools():
-            tool = get_tool(tool_name)
-            tools_description += f"- {tool_name}: {tool.__doc__ or 'Brak opisu'}\n"
-        return tools_description
-
-    def _get_available_tools(self) -> List[str]:
-        """Zwraca listę nazw dostępnych narzędzi.
-        
-        Returns:
-            List[str]: Lista nazw narzędzi.
-        """
-        return get_available_tools()
-
-    def _parse_llm_response(self, response: str) -> Optional[Dict[str, Any]]:
-        """Próbuje sparsować odpowiedź LLM jako JSON po znaczniku TOOL_CALL::.
-        
-        Args:
-            response (str): Odpowiedź od modelu LLM.
-            
-        Returns:
-            Optional[Dict[str, Any]]: Sparsowany JSON lub None jeśli parsowanie się nie powiodło.
-        """
-        if not response.startswith("TOOL_CALL::"):
-            return None
-            
+        response = self.llm.generate_response([{'role': 'user', 'content': prompt}])
         try:
-            json_str = response[len("TOOL_CALL::"):].strip()
-            return json.loads(json_str)
+            cleaned_json = response[response.find('{'):response.rfind('}')+1]
+            args = json.loads(cleaned_json)
+            print(f"DEBUG: Router uzyskał argumenty: {args}")
+            return args
         except json.JSONDecodeError:
-            return None
+            print(f"BŁĄD: Nie udało się sparsować argumentów JSON: {response}")
+            return {} # Zwróć pusty słownik, jeśli nie ma argumentów
 
     def process_turn(self, conversation_history: List[Dict[str, str]]) -> str:
-        """Przetwarza pojedynczą turę konwersacji.
+        """Główna metoda przetwarzająca turę rozmowy."""
+        user_prompt = conversation_history[-1]['content']
         
-        Args:
-            conversation_history (List[Dict[str, str]]): Historia konwersacji w formacie
-                listy słowników z kluczami 'role' i 'content'.
-                
-        Returns:
-            str: Odpowiedź dla użytkownika.
-        """
-        # Dodanie promptu systemowego do historii
-        system_message = {"role": "system", "content": self.system_prompt}
-        full_history = [system_message] + conversation_history
-        
-        # Wywołanie LLM
-        llm_response = self.llm.generate_response(full_history)
-        
-        # Sprawdzenie czy odpowiedź zawiera wywołanie narzędzia
-        if llm_response.startswith("TOOL_CALL::"):
-            # Próba parsowania odpowiedzi jako JSON
-            parsed_response = self._parse_llm_response(llm_response)
-            
-            if parsed_response and "tool" in parsed_response:
-                try:
-                    tool_name = parsed_response["tool"]
-                    tool_args = parsed_response.get("args", {})
-                    
-                    # Wywołanie narzędzia i bezpośrednie zwrócenie wyniku
-                    tool_result = get_tool(tool_name)(**tool_args)
-                    return str(tool_result)
-                    
-                except Exception as e:
-                    return f"Wystąpił błąd podczas wykonywania narzędzia: {str(e)}"
-        
-        # Jeśli odpowiedź nie zawiera wywołania narzędzia, zwracamy ją bezpośrednio
-        return llm_response
+        # ETAP 1: ROUTING
+        chosen_tool_name = self._choose_tool(user_prompt)
+
+        # ETAP 2: WYKONANIE LUB ROZMOWA
+        if chosen_tool_name != "None":
+            tool_args = self._get_tool_args(chosen_tool_name, user_prompt)
+            tool_function = get_tool(chosen_tool_name)
+            try:
+                result = tool_function(**tool_args)
+                return str(result)
+            except Exception as e:
+                return f"Błąd podczas wykonywania narzędzia {chosen_tool_name}: {e}"
+        else:
+            # Jeśli żadne narzędzie nie zostało wybrane, prowadź normalną rozmowę
+            return self.llm.generate_response(conversation_history)
