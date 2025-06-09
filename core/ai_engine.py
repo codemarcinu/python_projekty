@@ -7,7 +7,6 @@ z systemem wtyczek, umożliwiając agentowi wykonywanie zadań i odpowiadanie u�
 
 import json
 import inspect
-from pydantic import ValidationError
 from .llm_manager import LLMManager
 from .plugin_system import load_plugins, get_tool, _tools
 from .tool_models import WeatherArgs, AddTaskArgs, ListTasksArgs, TaskIdArgs, MathArgs
@@ -24,17 +23,7 @@ class AIEngine:
         load_plugins("plugins")
         self.tools_description = self._get_formatted_tools_description()
         self.llm = LLMManager()
-        # Mapa modeli argumentów dla narzędzi
-        self.tool_arg_models = {
-            "get_current_weather": WeatherArgs,
-            "add_task": AddTaskArgs,
-            "list_tasks": ListTasksArgs,
-            "complete_task": TaskIdArgs,
-            "delete_task": TaskIdArgs,
-            "add": MathArgs,
-            "multiply": MathArgs,
-        }
-        print("AI Engine (Router - English Prompts) has been initialized.")
+        print("AI Engine (Context-Aware Router) has been initialized.")
 
     def _get_formatted_tools_description(self) -> str:
         """Tworzy opis narzędzi dla promptu routera."""
@@ -44,13 +33,22 @@ class AIEngine:
             descriptions.append(f"- {name}: {docstring}")
         return "\n".join(descriptions)
 
-    def _choose_tool(self, user_prompt: str) -> str:
+    def _choose_tool(self, conversation_history: List[Dict[str, str]]) -> str:
         tool_names = ", ".join(_tools.keys())
-        prompt = f"""Your task is to choose a tool. Based on the user's request, which of the following tools is the most appropriate: [{tool_names}, None]?
+        
+        # Formatuj ostatnie 4 wiadomości jako kontekst
+        recent_history = "\n".join([f"{msg['role']}: {msg['content']}" for msg in conversation_history[-4:]])
 
-        User request: "{user_prompt}"
+        prompt = f"""Your task is to choose a tool based on the user's last message in the context of the recent conversation.
 
-        Respond with a single word: the name of the tool or "None".
+        Available Tools:
+        {self.tools_description}
+        ---
+        Recent Conversation History:
+        {recent_history}
+        ---
+
+        Based on the LAST user message, which tool should be used? Respond with a single word: the name of the tool or "None".
         Tool:"""
 
         response = self.llm.generate_response([{'role': 'user', 'content': prompt}])
@@ -64,36 +62,26 @@ class AIEngine:
         print(f"DEBUG: Router chose no tool (AI response: '{response}')")
         return "None"
 
-    def _get_tool_args(self, tool_name: str, user_prompt: str) -> Dict[str, Any]:
-        """Etap 2a: Wydobycie argumentów dla wybranego narzędzia."""
+    def _get_tool_args(self, tool_name: str, conversation_history: List[Dict[str, str]]) -> Dict[str, Any]:
         target_tool = get_tool(tool_name)
         arg_spec = inspect.getfullargspec(target_tool)
+        user_prompt = conversation_history[-1]['content']
         
-        # Specjalna obsługa dla narzędzia pogodowego
-        if tool_name == "get_current_weather":
-            prompt = f"""Your task is to extract the city name for the weather query.
-            The user's request is: "{user_prompt}"
-            
-            Rules:
-            1. Always use the base form of the city name (e.g., "Warszawa" not "warszawie")
-            2. Capitalize the first letter of the city name
-            3. Remove any prepositions or articles
-            4. Return ONLY a JSON object with the city name
-            
-            Example responses:
-            - For "jaka pogoda w warszawie?" -> {{"city": "Warszawa"}}
-            - For "pogoda dla krakowa" -> {{"city": "Krakow"}}
-            
-            JSON:"""
-        else:
-            prompt = f"""Your task is to extract arguments for the tool '{tool_name}' from the user's request.
-            The tool's required arguments are: {arg_spec.args}.
-            The tool's description is: "{target_tool.__doc__.strip() if target_tool.__doc__ else 'No description available.'}"
+        # Formatuj ostatnie 4 wiadomości jako kontekst dla ekstraktora
+        recent_history = "\n".join([f"{msg['role']}: {msg['content']}" for msg in conversation_history[-4:]])
 
-            User's request: "{user_prompt}"
+        docstring = target_tool.__doc__.strip() if target_tool.__doc__ else "No description available."
+        prompt = f"""Your task is to extract arguments for the tool '{tool_name}' from the user's request, using the conversation history for context.
+        Tool's required arguments: {arg_spec.args}
+        Tool's description: "{docstring}"
 
-            Respond ONLY with a valid JSON object containing the arguments. If no arguments are needed, respond with an empty JSON object {{}}.
-            JSON:"""
+        Recent conversation history:
+        ---
+        {recent_history}
+        ---
+
+        Based on the last user message, extract the arguments. Respond ONLY with a valid JSON object. If no arguments are needed or can be found, respond with an empty JSON object {{}}.
+        JSON:"""
         
         response = self.llm.generate_response([{'role': 'user', 'content': prompt}])
         try:
@@ -106,54 +94,27 @@ class AIEngine:
             return {}
 
     def process_turn(self, conversation_history: List[Dict[str, str]]) -> str:
-        """Główna metoda przetwarzająca turę rozmowy z logiką dopytywania."""
-        user_prompt = conversation_history[-1]['content']
-        chosen_tool_name = self._choose_tool(user_prompt)
+        # Krok 1: Router wybiera narzędzie na podstawie historii
+        chosen_tool_name = self._choose_tool(conversation_history)
 
-        if chosen_tool_name in ["complete_task", "delete_task"]:
-            # Logika specjalna dla narzędzi wymagających ID
-            tool_function = get_tool(chosen_tool_name)
-            tool_args = self._get_tool_args(chosen_tool_name, user_prompt)
-
-            if not tool_args.get("task_ids"):
-                # --- NOWA LOGIKA: Dopytywanie ---
-                print("DEBUG: Brak ID zadania, uruchamiam tryb dopytywania.")
-                current_tasks = get_tool("list_tasks")() # Wywołaj list_tasks, aby dostać listę
-                
-                clarification_prompt = f"""Your task is to ask the user for clarification. The user wants to '{chosen_tool_name}', but did not specify which task ID.
-                Based on the user's request and the current task list, formulate a helpful question in Polish suggesting which tasks they might mean.
-
-                Current task list:
-                {current_tasks}
-
-                User's original request: "{user_prompt}"
-
-                Formulate a clarifying question in Polish:"""
-
-                return self.llm.generate_response([{'role': 'user', 'content': clarification_prompt}])
-            else:
-                # Jeśli ID są podane, wykonaj narzędzie normalnie
-                try:
-                    result = tool_function(**tool_args)
-                    return str(result)
-                except Exception as e:
-                    return f"Błąd podczas wykonywania narzędzia {chosen_tool_name}: {e}"
-
-        elif chosen_tool_name != "None":
-            # Standardowa obsługa dla pozostałych narzędzi
+        if chosen_tool_name != "None":
             tool_function = get_tool(chosen_tool_name)
             
+            # Krok 2: Ekstraktor argumentów również używa historii
             if inspect.signature(tool_function).parameters:
-                tool_args = self._get_tool_args(chosen_tool_name, user_prompt)
+                tool_args = self._get_tool_args(chosen_tool_name, conversation_history)
             else:
                 tool_args = {}
                 print(f"DEBUG: Tool '{chosen_tool_name}' requires no arguments.")
 
+            # Krok 3: Wykonanie narzędzia
             try:
                 result = tool_function(**tool_args)
+                # Na razie wciąż zwracamy surowy wynik dla niezawodności
+                # W przyszłości dodamy tu warstwę konwersacyjną
                 return str(result)
             except Exception as e:
-                return f"Błąd podczas wykonywania narzędzia {chosen_tool_name}: {e}"
+                return f"Error while executing tool {chosen_tool_name}: {e}"
         else:
             # Jeśli żadne narzędzie nie zostało wybrane, prowadź normalną rozmowę
             return self.llm.generate_response(conversation_history)
