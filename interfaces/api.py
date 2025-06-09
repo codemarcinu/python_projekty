@@ -4,6 +4,8 @@ Wykorzystuje FastAPI do obsługi zapytań HTTP.
 """
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from typing import List, Dict
 
@@ -23,9 +25,20 @@ class ChatResponse(BaseModel):
 # --- Inicjalizacja aplikacji i silnika AI ---
 app = FastAPI(title="Lokalny Asystent AI API")
 
+# Montujemy katalog static do obsługi plików statycznych
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
 # Tworzymy jedną, globalną instancję silnika, która będzie używana przez wszystkich
 # To wydajne, bo wtyczki ładują się tylko raz.
 engine = AIEngine()
+
+@app.get("/", response_class=HTMLResponse)
+async def read_index():
+    """
+    Endpoint główny serwujący stronę HTML interfejsu użytkownika.
+    """
+    with open("static/index.html") as f:
+        return HTMLResponse(content=f.read(), status_code=200)
 
 @app.post("/api/chat", response_model=ChatResponse)
 def chat_endpoint(request: ChatRequest):
@@ -47,7 +60,3 @@ def chat_endpoint(request: ChatRequest):
 
     # Odsyłamy odpowiedź i zaktualizowaną historię
     return ChatResponse(reply=response_text, history=handler.get_history())
-
-@app.get("/")
-def read_root():
-    return {"message": "Witaj w API Asystenta AI! Użyj endpointu /docs, aby zobaczyć dostępne operacje."}

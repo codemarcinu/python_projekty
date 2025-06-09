@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lokalny Asystent AI</title>
+    <style>
+        body { 
+            font-family: sans-serif; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            height: 100vh; 
+            margin: 0; 
+            background-color: #f4f4f9; 
+        }
+        #chat-container { 
+            width: 90%; 
+            max-width: 600px; 
+            height: 80vh; 
+            border: 1px solid #ccc; 
+            border-radius: 8px; 
+            display: flex; 
+            flex-direction: column; 
+            background-color: white; 
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1); 
+        }
+        #chat-box { 
+            flex-grow: 1; 
+            padding: 20px; 
+            overflow-y: auto; 
+            border-bottom: 1px solid #ccc; 
+        }
+        .message { 
+            margin-bottom: 15px; 
+            padding: 10px; 
+            border-radius: 8px; 
+            line-height: 1.4; 
+        }
+        .user-message { 
+            background-color: #e1f5fe; 
+            align-self: flex-end; 
+            text-align: right; 
+        }
+        .assistant-message { 
+            background-color: #f1f8e9; 
+        }
+        #input-area { 
+            display: flex; 
+            padding: 10px; 
+        }
+        #user-input { 
+            flex-grow: 1; 
+            border: 1px solid #ccc; 
+            border-radius: 4px; 
+            padding: 10px; 
+            font-size: 16px; 
+        }
+        #send-button { 
+            margin-left: 10px; 
+            padding: 10px 20px; 
+            border: none; 
+            background-color: #007bff; 
+            color: white; 
+            border-radius: 4px; 
+            cursor: pointer; 
+            font-size: 16px; 
+        }
+        #send-button:hover { 
+            background-color: #0056b3; 
+        }
+    </style>
+</head>
+<body>
+    <div id="chat-container">
+        <div id="chat-box">
+            <div class="message assistant-message">Witaj! Jestem Twoim asystentem AI. W czym mogę Ci dzisiaj pomóc?</div>
+        </div>
+        <div id="input-area">
+            <input type="text" id="user-input" placeholder="Wpisz wiadomość...">
+            <button id="send-button">Wyślij</button>
+        </div>
+    </div>
+
+    <script>
+        // Tutaj w następnym kroku dodamy nasz kod JavaScript
+    </script>
+</body>
+</html> 

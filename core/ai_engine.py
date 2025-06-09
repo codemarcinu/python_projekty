@@ -74,32 +74,45 @@ class AIEngine:
         return "None"
 
     def _get_tool_args(self, tool_name: str, conversation_history: List[Dict[str, str]]) -> Dict[str, Any]:
-        # --- NOWA, ULEPSZONA LOGIKA ---
         user_prompt = conversation_history[-1]['content']
-        # Sprawdzanie słów kluczowych dla operacji masowych
         if tool_name in ["complete_task", "delete_task"] and any(word in user_prompt.lower() for word in ["wszystkie", "wszystko", "każde", "all"]):
             print("DEBUG: Wykryto polecenie masowe. Pobieram wszystkie ID zadań.")
             all_tasks_str = get_tool("list_tasks")()
-            # Prosta metoda na wyciągnięcie ID z wyniku list_tasks
             task_ids = [int(line.split(']')[0].split('[ID: ')[1]) for line in all_tasks_str.split('\n') if line.startswith('- [ID:')]
             if task_ids:
                 return {"task_ids": task_ids}
 
-        # Standardowa logika, jeśli nie wykryto polecenia masowego
         target_tool = get_tool(tool_name)
         arg_spec = inspect.getfullargspec(target_tool)
         recent_history = "\n".join([f"{msg['role']}: {msg['content']}" for msg in conversation_history[-4:]])
         docstring = target_tool.__doc__.strip() if target_tool.__doc__ else "No description available."
-        prompt = f"""Your task is to extract arguments for the tool '{tool_name}' from the user's request...
-        JSON:""" # Skrócony dla czytelności
+        
+        prompt = f"""Extract arguments for the tool '{tool_name}' from the user's request.
+        Tool description: {docstring}
+        Required arguments: {arg_spec.args}
+        Recent conversation history:
+        {recent_history}
+
+        Respond ONLY with a valid JSON object containing the extracted arguments.
+        Example format: {{"argument_name": "argument_value"}}
+        Do not include any other text or explanation, just the JSON object.
+        JSON:"""
+        
         response = self.llm.generate_response([{'role': 'user', 'content': prompt}])
         try:
-            cleaned_json = response[response.find('{'):response.rfind('}')+1]
+            # Find the first { and last } in the response
+            start_idx = response.find('{')
+            end_idx = response.rfind('}') + 1
+            if start_idx == -1 or end_idx == 0:
+                raise json.JSONDecodeError("No JSON object found", response, 0)
+            
+            cleaned_json = response[start_idx:end_idx]
             args = json.loads(cleaned_json)
             print(f"DEBUG: Router got raw arguments: {args}")
             return args
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
             print(f"ERROR: Failed to parse JSON arguments from response: {response}")
+            print(f"ERROR details: {str(e)}")
             return {}
 
     def process_turn(self, conversation_history: List[Dict[str, str]]) -> str:
