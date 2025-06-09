@@ -95,59 +95,59 @@ class AIEngine:
     def _setup_tools(self) -> None:
         """Set up tools for the agent."""
         try:
-            # Define available tools
+            # Define available tools with improved descriptions
             self.tools = [
                 Tool(
                     name="search",
                     func=self._search_tool,
-                    description="Search for information on the internet"
+                    description="Wyszukaj informacje w internecie. Input powinien być zapytaniem wyszukiwania."
                 ),
                 Tool(
                     name="calculator",
                     func=self._calculator_tool,
-                    description="Perform mathematical calculations"
+                    description="Wykonaj obliczenia matematyczne. Input powinien być wyrażeniem matematycznym (np. '2+2')."
                 ),
                 Tool(
                     name="weather",
                     func=self._weather_tool,
-                    description="Get current weather information"
+                    description="Pobierz aktualną pogodę dla podanej lokalizacji. Input powinien być nazwą miasta."
                 ),
                 Tool(
                     name="time",
                     func=self._time_tool,
-                    description="Get current time and date"
+                    description="Pobierz aktualną datę i czas. Nie wymaga inputu."
                 )
             ]
             
-            # Create modern React agent prompt
-            prompt_template = """You are an AI assistant with access to various tools.
-Use these tools when appropriate to help answer questions.
+            # Create modern React agent prompt with improved instructions
+            prompt_template = """Jesteś asystentem AI z dostępem do różnych narzędzi.
+Używaj tych narzędzi, gdy są odpowiednie do pomocy w odpowiedzi na pytania.
 
-TOOLS:
-------
-You have access to the following tools:
+NARZĘDZIA:
+---------
+Masz dostęp do następujących narzędzi:
 
 {tools}
 
-To use a tool, please use the following format:
+Aby użyć narzędzia, użyj następującego formatu:
 
 ```
-Thought: Do I need to use a tool? Yes
-Action: the action to take, should be one of [{tool_names}]
-Action Input: the input to the action
-Observation: the result of the action
+Thought: Czy muszę użyć narzędzia? Tak
+Action: nazwa narzędzia do użycia, powinno być jednym z [{tool_names}]
+Action Input: input do narzędzia
+Observation: wynik działania narzędzia
 ```
 
-When you have a response to say to the Human, or if you do not need to use a tool, you MUST use the format:
+Gdy masz odpowiedź do przekazania człowiekowi, lub gdy nie musisz używać narzędzia, MUSISZ użyć formatu:
 
 ```
-Thought: Do I need to use a tool? No
-Final Answer: [your response here]
+Thought: Czy muszę użyć narzędzia? Nie
+Final Answer: [twoja odpowiedź tutaj]
 ```
 
-Begin!
+Zacznij!
 
-Question: {input}
+Pytanie: {input}
 Thought: {agent_scratchpad}"""
 
             prompt = PromptTemplate.from_template(prompt_template)
@@ -159,13 +159,14 @@ Thought: {agent_scratchpad}"""
                 prompt=prompt
             )
             
-            # Create agent executor
+            # Create agent executor with improved error handling
             self.agent_executor = AgentExecutor(
                 agent=self.agent,
                 tools=self.tools,
                 verbose=True,
                 handle_parsing_errors=True,
-                max_iterations=3
+                max_iterations=3,
+                return_intermediate_steps=True
             )
             
             logger.info("Agent setup completed successfully")
@@ -177,65 +178,108 @@ Thought: {agent_scratchpad}"""
             self.agent_executor = None
             self.tools = []
     
-    async def _search_tool(self, query: str) -> str:
+    def _search_tool(self, query: str) -> str:
         """Search tool implementation."""
-        # TODO: Implement actual search functionality
-        return f"Search results for: {query}"
+        try:
+            # Mock implementation - in real app would use actual search API
+            return f"Wyniki wyszukiwania dla '{query}': Funkcja wyszukiwania jest w fazie rozwoju."
+        except Exception as e:
+            logger.error(f"Search tool error: {e}")
+            return f"Błąd wyszukiwania: {str(e)}"
     
-    async def _calculator_tool(self, expression: str) -> str:
+    def _calculator_tool(self, expression: str) -> str:
         """Calculator tool implementation."""
         try:
+            # Safe calculation of basic operations
+            allowed_chars = set('0123456789+-*/().,= ')
+            if not all(c in allowed_chars for c in expression):
+                return "Błąd: Niedozwolone znaki w wyrażeniu"
+            
             result = eval(expression)
-            return f"Result: {result}"
+            return f"Wynik: {result}"
         except Exception as e:
-            return f"Error calculating: {str(e)}"
+            logger.error(f"Calculator tool error: {e}")
+            return f"Błąd kalkulacji: {str(e)}"
     
-    async def _weather_tool(self, location: str) -> str:
+    def _weather_tool(self, location: str) -> str:
         """Weather tool implementation."""
-        # TODO: Implement actual weather API integration
-        return f"Weather information for: {location}"
+        try:
+            # Mock weather data - in real app would use weather API
+            weather_data = {
+                "warszawa": "Słonecznie, 22°C",
+                "kraków": "Pochmurnie, 18°C", 
+                "gdańsk": "Deszczowo, 15°C"
+            }
+            
+            location_lower = location.lower()
+            if location_lower in weather_data:
+                return f"Pogoda w {location}: {weather_data[location_lower]}"
+            else:
+                return f"Brak danych pogodowych dla {location}"
+        except Exception as e:
+            logger.error(f"Weather tool error: {e}")
+            return f"Błąd pobierania pogody: {str(e)}"
     
-    async def _time_tool(self, _: Any = None) -> str:
+    def _time_tool(self, input_text: str = "") -> str:
         """Time tool implementation."""
-        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        except Exception as e:
+            logger.error(f"Time tool error: {e}")
+            return f"Błąd pobierania czasu: {str(e)}"
     
     async def process_message(
         self, 
         message: str, 
         conversation_id: str = None,
-        use_agent: bool = False
+        use_agent: bool = True
     ) -> str:
         """
-        Process user message with optional agent capabilities.
+        Process user message with agent enabled by default.
         
         Args:
             message: User message
-            conversation_id: Optional conversation ID
-            use_agent: Whether to use agent tools
+            conversation_id: Optional conversation ID  
+            use_agent: Whether to use agent tools (default: True)
             
         Returns:
             AI response
         """
         try:
-            if not message or not isinstance(message, str):
-                logger.error("Invalid message in process_message.")
-                return "No message provided."
+            # Always try to use agent if available
+            if self.agent_executor and self.tools and use_agent:
+                logger.info(f"Processing with agent tools: {[tool.name for tool in self.tools]}")
                 
-            if use_agent and self.agent_executor:
-                # Use agent with tools
-                response = await self.agent_executor.ainvoke({
-                    "input": message
-                })
-                output = response.get("output")
-                return str(output) if output is not None else "No response generated"
+                try:
+                    response = await self.agent_executor.ainvoke({
+                        "input": message
+                    })
+                    
+                    result = response.get("output", "Brak odpowiedzi z agenta")
+                    logger.info("Agent response generated successfully")
+                    return result
+                    
+                except Exception as agent_error:
+                    logger.error(f"Agent execution error: {agent_error}")
+                    logger.info("Falling back to direct LLM response")
+                    return await self._direct_llm_response(message)
             else:
-                # Direct LLM response
-                response = await self.llm_manager.generate(message)
-                return str(response) if response is not None else "No response generated"
+                # Direct LLM response when agent disabled or unavailable
+                logger.info("Using direct LLM response (agent disabled or unavailable)")
+                return await self._direct_llm_response(message)
                 
         except Exception as e:
             logger.error(f"Error processing message: {e}")
-            return f"Przepraszam, wystąpił błąd: {str(e)}"
+            return f"Przepraszam, wystąpił błąd podczas przetwarzania wiadomości: {str(e)}"
+    
+    async def _direct_llm_response(self, message: str) -> str:
+        """Get direct response from LLM without tools."""
+        try:
+            response = await self.llm_manager.generate(message)
+            return str(response) if response is not None else "Nie wygenerowano odpowiedzi"
+        except Exception as e:
+            logger.error(f"Direct LLM error: {e}")
+            return "Przepraszam, nie mogę teraz odpowiedzieć."
     
     async def process_rag_query(self, query: str, chat_history: str = "") -> str:
         """Process a query using the RAG chain if available."""
@@ -254,6 +298,14 @@ Thought: {agent_scratchpad}"""
             logger.error(f"Error in RAG query: {e}")
             return f"Error processing RAG query: {e}"
 
+    def get_agent_status(self) -> dict:
+        """Get current agent status and available tools."""
+        return {
+            "agent_available": self.agent_executor is not None,
+            "tools_count": len(self.tools) if self.tools else 0,
+            "available_tools": [tool.name for tool in self.tools] if self.tools else [],
+            "default_enabled": True
+        }
 
 # Create global AI engine instance
 ai_engine = AIEngine()

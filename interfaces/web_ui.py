@@ -192,3 +192,37 @@ async def delete_conversation(conversation_id: str):
     if conversation_manager.delete_conversation(conversation_id):
         return {"message": "Conversation deleted successfully"}
     raise HTTPException(status_code=404, detail="Conversation not found")
+
+
+@app.get("/api/agent/status")
+async def get_agent_status():
+    """Get current agent status."""
+    try:
+        ai_engine = get_ai_engine()
+        status = ai_engine.get_agent_status()
+        return {
+            "status": "success",
+            "data": status
+        }
+    except Exception as e:
+        logger.error(f"Error getting agent status: {e}")
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+
+@app.post("/api/agent/toggle")
+async def toggle_agent(request: dict):
+    """Toggle agent functionality."""
+    try:
+        enabled = request.get("enabled", True)
+        # Here you can add logic to temporarily disable agent
+        return {
+            "status": "success",
+            "agent_enabled": enabled
+        }
+    except Exception as e:
+        return {
+            "status": "error", 
+            "message": str(e)
+        }
