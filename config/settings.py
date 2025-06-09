@@ -12,10 +12,22 @@ class LLMSettings(BaseModel):
 
 class RAGSettings(BaseModel):
     """Ustawienia dla RAG (Retrieval-Augmented Generation)."""
+    # Embeddings
+    base_url: str = "http://localhost:11434"
     embedding_model: str = "nomic-embed-text"
-    index_path: Path = Path("data/vector_store")
+    
+    # Chunking
     chunk_size: int = 1000
     chunk_overlap: int = 200
+    
+    # Ścieżki
+    index_path: Path = Path("data/faiss_index")
+    vector_db_path: Path = Path("data/vector_db")
+    upload_dir: Path = Path("uploads")
+    
+    # Inne ustawienia
+    max_results: int = 5
+    similarity_threshold: float = 0.7
 
 class Settings(BaseSettings):
     """Główne ustawienia aplikacji."""
@@ -29,7 +41,6 @@ class Settings(BaseSettings):
     request_timeout: int = 30
     
     # Ścieżki
-    upload_dir: Path = Path("uploads")
     log_dir: Path = Path("logs")
     
     # Modele i RAG

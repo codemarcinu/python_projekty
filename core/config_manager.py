@@ -41,10 +41,22 @@ class LLMSettings(BaseModel):
 
 class RAGSettings(BaseModel):
     """Settings for RAG system configuration."""
-    vector_db_path: Path = Field(default=Path("data/vector_db"), description="Path to vector database")
+    # Embeddings
+    base_url: str = Field(default="http://localhost:11434", description="Ollama API host")
+    embedding_model: str = Field(default="nomic-embed-text", description="Model for text embeddings")
+    
+    # Chunking
     chunk_size: int = Field(default=1000, gt=0, description="Size of text chunks for processing")
     chunk_overlap: int = Field(default=200, ge=0, description="Overlap between chunks")
-    embedding_model: str = Field(default="all-MiniLM-L6-v2", description="Model for text embeddings")
+    
+    # Paths
+    vector_db_path: Path = Field(default=Path("data/vector_db"), description="Path to vector database")
+    index_path: Path = Field(default=Path("data/faiss_index"), description="Path to FAISS index")
+    upload_dir: Path = Field(default=Path("uploads"), description="Directory for uploaded files")
+    
+    # Other settings
+    max_results: int = Field(default=5, gt=0, description="Maximum number of results to return")
+    similarity_threshold: float = Field(default=0.7, ge=0.0, le=1.0, description="Similarity threshold for search")
 
 class Settings(BaseModel):
     """Main settings class for the application."""

@@ -15,12 +15,17 @@ from core.rag_manager import RAGManager
 from core.config_manager import get_settings
 from core.llm_manager import get_llm_manager, ModelUnavailableError
 
-# Configure logging
+# Konfiguracja logowania
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('app.log'),
+        logging.StreamHandler()
+    ]
 )
+
+logger = logging.getLogger(__name__)
 
 # Initialize Typer app
 app = typer.Typer(help="AI Assistant")
@@ -63,7 +68,11 @@ def serve(
         "interfaces.web_ui:app",
         host=host,
         port=port,
-        reload=reload
+        reload=reload,
+        log_level="info",
+        ws_max_size=16777216,  # 16MB dla WebSocket
+        ws_ping_interval=20,
+        ws_ping_timeout=20
     )
 
 
@@ -85,4 +94,9 @@ def init_vector_db():
 
 
 if __name__ == "__main__":
-    app()
+    try:
+        logger.info("Starting AI Assistant server...")
+        app()
+    except Exception as e:
+        logger.error(f"Failed to start server: {e}")
+        raise

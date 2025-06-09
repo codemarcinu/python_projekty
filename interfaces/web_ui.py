@@ -29,7 +29,8 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="AI Assistant")
 
 # Mount static files
-app.mount("/static", StaticFiles(directory="static"), name="static")
+static_path = Path(__file__).parent.parent / "static"
+app.mount("/static", StaticFiles(directory=str(static_path)), name="static")
 
 # Initialize templates
 templates = Jinja2Templates(directory="templates")
@@ -37,6 +38,9 @@ templates = Jinja2Templates(directory="templates")
 # Initialize managers
 llm_manager = get_llm_manager()
 rag_manager = RAGManager(get_settings().rag)
+
+# Store active WebSocket connections
+active_connections: Dict[str, WebSocket] = {}
 
 class ChatMessage(BaseModel):
     """Model for chat messages."""
@@ -53,88 +57,84 @@ class ChatResponse(BaseModel):
     timestamp: datetime
 
 @app.get("/", response_class=HTMLResponse)
-async def get_dashboard(request: Request):
-    """Serve the dashboard interface."""
-    return templates.TemplateResponse(
-        "dashboard.html",
-        {"request": request}
-    )
+async def get_chat_interface():
+    """Zwraca interfejs czatu."""
+    try:
+        with open(static_path / "index.html", "r") as f:
+            return f.read()
+    except Exception as e:
+        logger.error(f"Error loading chat interface: {e}")
+        raise HTTPException(status_code=500, detail="Błąd ładowania interfejsu czatu")
 
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    """Handle WebSocket connections for real-time chat and updates."""
+@app.websocket("/ws/{conversation_id}")
+async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
+    """WebSocket endpoint for real-time chat."""
     await websocket.accept()
-    logger.info("WebSocket connection established")
+    active_connections[conversation_id] = websocket
+    logger.info(f"WebSocket connection established for conversation {conversation_id}")
     
     try:
         while True:
             try:
-                # Receive message
+                # Odbierz wiadomość jako tekst
                 raw_data = await websocket.receive_text()
                 
-                # Parse JSON with error handling
+                # Sparsuj JSON
                 try:
                     data = json.loads(raw_data)
                 except json.JSONDecodeError as e:
-                    logger.error(f"Received invalid JSON from client: {e}")
+                    logger.error(f"Invalid JSON received: {e}")
                     await websocket.send_json({
-                        "type": "error",
-                        "message": "Nieprawidłowy format danych. Spróbuj ponownie."
+                        "error": "Nieprawidłowy format JSON",
+                        "timestamp": datetime.now().isoformat()
                     })
                     continue
                 
-                # Handle different message types
-                message_type = data.get("type", "")
+                message = data.get("message", "").strip()
+                use_agent = data.get("use_agent", True)  # Domyślnie włączony agent
                 
-                if message_type == "message":
-                    # Process chat message
-                    message = data.get("content", "").strip()
-                    model = data.get("model", "gemma3:12b")
-                    use_rag = data.get("use_rag", True)
-                    
-                    if not message:
-                        await websocket.send_json({
-                            "type": "error",
-                            "message": "Wiadomość nie może być pusta."
-                        })
-                        continue
-                    
-                    # Process message through AI engine
-                    ai_engine = get_ai_engine()
-                    response = await ai_engine.process_message(
-                        message=message,
-                        model=model,
-                        use_rag=use_rag
-                    )
-                    
-                    # Send response
+                if not message:
                     await websocket.send_json({
-                        "type": "message",
-                        "content": response,
-                        "model": model,
+                        "error": "Wiadomość nie może być pusta",
                         "timestamp": datetime.now().isoformat()
                     })
-                    
-                    # Update stats
-                    await send_stats_update(websocket)
-                    
+                    continue
+                
+                # Przetwórz wiadomość przez AI
+                ai_engine = get_ai_engine()
+                
+                response = await ai_engine.process_message(
+                    message=message,
+                    conversation_id=conversation_id,
+                    use_agent=use_agent
+                )
+                
+                # Wyślij odpowiedź
+                await websocket.send_json({
+                    "response": response,
+                    "conversation_id": conversation_id,
+                    "timestamp": datetime.now().isoformat()
+                })
+                
             except WebSocketDisconnect:
-                logger.info("WebSocket connection closed")
+                logger.info(f"WebSocket disconnected for conversation {conversation_id}")
                 break
             except Exception as e:
                 logger.error(f"Error processing WebSocket message: {e}")
                 try:
                     await websocket.send_json({
-                        "type": "error",
-                        "message": f"Błąd przetwarzania: {str(e)}"
+                        "error": f"Błąd przetwarzania: {str(e)}",
+                        "timestamp": datetime.now().isoformat()
                     })
                 except:
                     break
-                
+                    
     except Exception as e:
-        logger.error(f"WebSocket error: {e}")
+        logger.error(f"WebSocket error for conversation {conversation_id}: {e}")
     finally:
         try:
+            if conversation_id in active_connections:
+                del active_connections[conversation_id]
             await websocket.close()
         except:
             pass
