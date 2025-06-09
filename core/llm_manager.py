@@ -8,10 +8,11 @@ import logging
 from datetime import datetime
 import aiohttp
 
-from langchain.callbacks.manager import CallbackManager
-from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
+from langchain_core.callbacks import CallbackManager
+from langchain_core.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from langchain_community.llms import Ollama
 from langchain_community.embeddings import OllamaEmbeddings
+from langchain_core.language_models import BaseLLM
 
 from .config_manager import get_settings
 
@@ -37,13 +38,13 @@ class LLMManager:
     def __init__(self):
         """Initialize the LLM manager with configuration from settings."""
         self.settings = get_settings()
-        self._llm: Optional[Ollama] = None
+        self._llm: Optional[BaseLLM] = None
         self._embeddings: Optional[OllamaEmbeddings] = None
         self._last_error_time: Optional[datetime] = None
         self._error_count = 0
         
     @property
-    def llm(self) -> Ollama:
+    def llm(self) -> BaseLLM:
         """Get or create the LLM instance."""
         if self._llm is None:
             callback_manager = CallbackManager([StreamingStdOutCallbackHandler()])
@@ -52,6 +53,8 @@ class LLMManager:
                 temperature=self.settings.llm.temperature,
                 callback_manager=callback_manager
             )
+        if self._llm is None:
+            raise ModelUnavailableError("Failed to initialize LLM")
         return self._llm
     
     @property
@@ -61,6 +64,8 @@ class LLMManager:
             self._embeddings = OllamaEmbeddings(
                 model=self.settings.rag.embedding_model
             )
+        if self._embeddings is None:
+            raise ModelUnavailableError("Failed to initialize embeddings")
         return self._embeddings
     
     async def generate(

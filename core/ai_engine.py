@@ -10,10 +10,11 @@ import logging
 
 from langchain.chains import ConversationalRetrievalChain
 from langchain.memory import ConversationBufferMemory
-from langchain.prompts import PromptTemplate
-from langchain.vectorstores import FAISS
-from langchain.embeddings import HuggingFaceEmbeddings
-from langchain.agents import AgentExecutor, ZeroShotAgent
+from langchain_core.prompts import PromptTemplate
+from langchain_community.vectorstores import FAISS
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain.agents import AgentExecutor
+from langchain.agents import create_react_agent
 from langchain.tools import Tool
 import torch
 
@@ -46,20 +47,20 @@ class AIEngine:
         # Initialize vector store
         try:
             vector_store = FAISS.load_local(
-                self.settings.rag.vector_db_path,
+                str(self.settings.rag.vector_db_path),
                 embeddings
             )
         except RuntimeError:
             # Jeśli indeks nie istnieje, tworzymy pusty
-            print("Indeks FAISS nie istnieje, tworzę pusty indeks...")
+            logger.info("Indeks FAISS nie istnieje, tworzę pusty indeks...")
             # Tworzymy indeks z jednym pustym tekstem, aby uniknąć błędu
             vector_store = FAISS.from_texts(
                 ["Initial empty document"],
                 embeddings,
                 metadatas=[{"source": "system"}]
             )
-            vector_store.save_local(self.settings.rag.vector_db_path)
-            print("Pusty indeks FAISS utworzony.")
+            vector_store.save_local(str(self.settings.rag.vector_db_path))
+            logger.info("Pusty indeks FAISS utworzony.")
         
         # Basic conversation chain
         self.conversation_chain = ConversationalRetrievalChain.from_llm(
@@ -87,61 +88,88 @@ Please provide a helpful and accurate response:"""
     
     def _setup_tools(self) -> None:
         """Set up tools for the agent."""
-        self.tools = [
-            Tool(
-                name="search",
-                func=self._search_tool,
-                description="Search for information on the internet"
-            ),
-            Tool(
-                name="calculator",
-                func=self._calculator_tool,
-                description="Perform mathematical calculations"
-            ),
-            Tool(
-                name="weather",
-                func=self._weather_tool,
-                description="Get current weather information"
-            ),
-            Tool(
-                name="time",
-                func=self._time_tool,
-                description="Get current time and date"
-            )
-        ]
-        
-        # Create prompt template
-        prefix = """You are an AI assistant with access to various tools. Use these tools when appropriate to help the user.
+        try:
+            # Define available tools
+            self.tools = [
+                Tool(
+                    name="search",
+                    func=self._search_tool,
+                    description="Search for information on the internet"
+                ),
+                Tool(
+                    name="calculator",
+                    func=self._calculator_tool,
+                    description="Perform mathematical calculations"
+                ),
+                Tool(
+                    name="weather",
+                    func=self._weather_tool,
+                    description="Get current weather information"
+                ),
+                Tool(
+                    name="time",
+                    func=self._time_tool,
+                    description="Get current time and date"
+                )
+            ]
+            
+            # Create modern React agent prompt
+            prompt_template = """You are an AI assistant with access to various tools.
+Use these tools when appropriate to help answer questions.
 
-Available tools:
+TOOLS:
+------
+You have access to the following tools:
+
 {tools}
 
-Let's approach this step by step:
-1. First, I'll analyze the user's request
-2. Then, I'll decide if I need to use any tools
-3. Finally, I'll provide a helpful response
+To use a tool, please use the following format:
 
-Current conversation:
-{chat_history}
+```
+Thought: Do I need to use a tool? Yes
+Action: the action to take, should be one of [{tool_names}]
+Action Input: the input to the action
+Observation: the result of the action
+```
 
-User input: {input}
+When you have a response to say to the Human, or if you do not need to use a tool, you MUST use the format:
 
-{agent_scratchpad}"""
-        
-        # Create agent
-        self.agent = ZeroShotAgent(
-            llm_chain=self.llm_manager.llm,
-            tools=self.tools,
-            prefix=prefix
-        )
-        
-        # Create agent executor
-        self.agent_executor = AgentExecutor(
-            agent=self.agent,
-            tools=self.tools,
-            verbose=True,
-            handle_parsing_errors=True
-        )
+```
+Thought: Do I need to use a tool? No
+Final Answer: [your response here]
+```
+
+Begin!
+
+Question: {input}
+Thought: {agent_scratchpad}"""
+
+            prompt = PromptTemplate.from_template(prompt_template)
+            
+            # Create React agent using modern approach
+            self.agent = create_react_agent(
+                llm=self.llm_manager.llm,
+                tools=self.tools,
+                prompt=prompt
+            )
+            
+            # Create agent executor
+            self.agent_executor = AgentExecutor(
+                agent=self.agent,
+                tools=self.tools,
+                verbose=True,
+                handle_parsing_errors=True,
+                max_iterations=3
+            )
+            
+            logger.info("Agent setup completed successfully")
+            
+        except Exception as e:
+            logger.error(f"Error setting up agent: {e}")
+            # Fallback - disable agent functionality
+            self.agent = None
+            self.agent_executor = None
+            self.tools = []
     
     async def _search_tool(self, query: str) -> str:
         """Search tool implementation."""
@@ -166,48 +194,43 @@ User input: {input}
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
     async def process_message(
-        self,
-        conversation: Conversation,
-        message: str,
-        system_prompt: Optional[str] = None
+        self, 
+        message: str, 
+        conversation_id: str = None,
+        use_agent: bool = False
     ) -> str:
         """
-        Process a user message and generate a response.
+        Process user message with optional agent capabilities.
         
         Args:
-            conversation: The current conversation
-            message: The user's message
-            system_prompt: Optional system prompt to guide the response
+            message: User message
+            conversation_id: Optional conversation ID
+            use_agent: Whether to use agent tools
             
         Returns:
-            Generated response
+            AI response
         """
-        # Add user message to conversation
-        conversation.add_message("user", message)
-        
         try:
-            if self.settings.llm.use_agent_mode:
-                # Use agent mode with tools
-                response = await self.agent_executor.arun(
-                    input=message,
-                    chat_history=conversation.get_context()
-                )
+            if message is None:
+                logger.error("Message argument is None in process_message.")
+                return "No message provided."
+            if use_agent and self.agent_executor:
+                # Use agent with tools
+                response = await self.agent_executor.ainvoke({
+                    "input": message
+                })
+                output = response.get("output")
+                return str(output) if output is not None else "No response generated"
             else:
-                # Use standard generation
-                response = await self.llm_manager.generate(
-                    prompt=message,
-                    system_prompt=system_prompt,
-                    context=conversation.get_context()
-                )
-            
-            # Add assistant response to conversation
-            conversation.add_message("assistant", response)
-            return response
-            
+                # Direct LLM response
+                if message is None:
+                    return "No message provided."
+                response = await self.llm_manager.generate(str(message))
+                return str(response) if response is not None else "No response generated"
+                
         except Exception as e:
-            error_msg = f"Error processing message: {str(e)}"
-            logger.error(error_msg)
-            raise AIEngineError(error_msg)
+            logger.error(f"Error processing message: {e}")
+            return f"Przepraszam, wystąpił błąd: {str(e)}"
     
     async def process_rag_query(
         self,
