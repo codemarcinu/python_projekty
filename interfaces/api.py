@@ -19,8 +19,8 @@ from core.config_manager import config_manager
 
 # --- Definicja modeli danych (co przyjmujemy i co zwracamy) ---
 class ChatRequest(BaseModel):
-    prompt: str
-    history: List[Dict[str, str]]
+    message: str
+    user_id: str
 
 class ChatResponse(BaseModel):
     reply: str
@@ -56,16 +56,21 @@ async def read_index():
         return HTMLResponse(content=f.read(), status_code=200)
 
 @app.post("/api/chat", response_model=ChatResponse)
-def chat_endpoint(request: ChatRequest):
+def chat_endpoint(chat_request: ChatRequest):
     """
     Główny endpoint do prowadzenia rozmowy z asystentem AI.
+    
+    Args:
+        chat_request: Obiekt zawierający wiadomość użytkownika i jego ID.
+        
+    Returns:
+        ChatResponse: Odpowiedź asystenta i historia konwersacji.
     """
-    # Dla każdego zapytania tworzymy nową, tymczasową historię
-    # i wypełniamy ją historią przesłaną z frontendu.
+    # Tworzymy nowy handler konwersacji
     handler = ConversationHandler()
-    for message in request.history:
-        handler.add_message(role=message['role'], content=message['content'])
-    handler.add_message(role="user", content=request.prompt)
+    
+    # Dodajemy wiadomość użytkownika do historii
+    handler.add_message(role="user", content=chat_request.message)
 
     # Przetwarzamy zapytanie przez nasz silnik AI
     response_text = engine.process_turn(handler.get_history())

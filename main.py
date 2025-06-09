@@ -3,6 +3,7 @@ Main entry point for the AI Assistant application.
 Handles both CLI and web server modes.
 """
 import asyncio
+import logging
 import uvicorn
 from pathlib import Path
 from typing import Optional
@@ -13,6 +14,12 @@ from rich.console import Console
 from interfaces.cli import app as cli_app
 from interfaces.web_ui import app as web_app
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 
 # Initialize Typer app
 app = typer.Typer(help="AI Assistant")
