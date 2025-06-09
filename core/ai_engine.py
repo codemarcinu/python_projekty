@@ -111,19 +111,9 @@ Twoja odpowiedź (JSON): {{"tool": "add", "args": {{"a": 5, "b": 7}}}}"""
                 tool_name = parsed_response["tool"]
                 tool_args = parsed_response.get("args", {})
                 
-                # Wywołanie narzędzia
+                # Wywołanie narzędzia i bezpośrednie zwrócenie wyniku
                 tool_result = get_tool(tool_name)(**tool_args)
-                
-                # Dodanie informacji o wyniku narzędzia do historii
-                tool_message = {
-                    "role": "system",
-                    "content": f"Wynik narzędzia {tool_name}: {str(tool_result)}"
-                }
-                full_history.append(tool_message)
-                
-                # Drugie wywołanie LLM z wynikiem narzędzia
-                final_response = self.llm.generate_response(full_history)
-                return final_response
+                return str(tool_result)
                 
             except Exception as e:
                 return f"Wystąpił błąd podczas wykonywania narzędzia: {str(e)}"
