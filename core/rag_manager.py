@@ -290,3 +290,12 @@ class RAGManager:
         self.vector_store = FAISS.from_texts([], self.embeddings)
         self.vector_store.save_local(str(self.index_path))
         print(f"Pusty indeks FAISS utworzony w {self.index_path}") 
+
+    def get_document_count(self) -> int:
+        """Zwraca liczbę unikalnych dokumentów w bazie wektorowej.
+        
+        Returns:
+            int: Liczba unikalnych dokumentów w bazie.
+                 Jeśli baza jest pusta lub nie istnieje, zwraca 0.
+        """
+        return len(self.list_documents()) 

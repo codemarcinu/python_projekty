@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Assistant Dashboard 2025</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/lucide@0.3.0/dist/css/lucide.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', path='css/dashboard.css') }}">
+</head>
+<body>
+    <!-- Sidebar -->
+    <aside class="sidebar">
+        <div class="logo">🤖 AI Assistant</div>
+        <nav>
+            <ul>
+                <li><i class="icon icon-home"></i> Dashboard</li>
+                <li><i class="icon icon-file"></i> Dokumenty</li>
+                <li><i class="icon icon-message-square"></i> Chat</li>
+                <li><i class="icon icon-settings"></i> Ustawienia</li>
+            </ul>
+        </nav>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <!-- Quick Stats -->
+        <section class="stats-section">
+            <div class="stats-grid">
+                <div class="card">
+                    <h3>Aktywne modele</h3>
+                    <div class="model-status">Gemma3:12B ● Online</div>
+                </div>
+                <div class="card">
+                    <h3>Przetworzone dokumenty</h3>
+                    <div class="doc-count">27</div>
+                </div>
+                <div class="card">
+                    <h3>Użycie pamięci</h3>
+                    <div class="memory-usage">4.2 GB</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- RAG Section -->
+        <section class="rag-section">
+            <h2>Zarządzanie Dokumentami</h2>
+            <div class="rag-dropzone" id="dropZone">
+                Przeciągnij pliki PDF/TXT lub kliknij aby wybrać
+            </div>
+            <div id="fileList" class="file-list"></div>
+        </section>
+    </main>
+
+    <!-- AI Panel -->
+    <section class="ai-panel">
+        <div class="card">
+            <div class="model-selector">
+                <select id="modelSelect">
+                    <option value="gemma">Gemma3:12B (Ogólny)</option>
+                    <option value="bielik">Bielik-11B (Dokumenty)</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Chat Interface -->
+        <div class="chat-container">
+            <div id="chatHistory" class="chat-history"></div>
+            <div class="chat-input">
+                <input type="text" id="messageInput" placeholder="Zapytaj AI...">
+                <button onclick="sendMessage()">Wyślij</button>
+            </div>
+        </div>
+    </section>
+
+    <script src="{{ url_for('static', path='js/dashboard.js') }}"></script>
+</body>
+</html> 

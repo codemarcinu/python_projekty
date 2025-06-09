@@ -231,46 +231,36 @@ Thought: {agent_scratchpad}"""
     async def process_message(
         self, 
         message: str, 
-        conversation_id: str = None,
-        use_agent: bool = True
+        model: str = "gemma3:12b",
+        use_rag: bool = True
     ) -> str:
         """
-        Process user message with agent enabled by default.
+        Process user message with optional RAG and model selection.
         
         Args:
             message: User message
-            conversation_id: Optional conversation ID  
-            use_agent: Whether to use agent tools (default: True)
+            model: Model to use for generation (default: "gemma3:12b")
+            use_rag: Whether to use RAG for context (default: True)
             
         Returns:
             AI response
         """
         try:
-            # Always try to use agent if available
-            if self.agent_executor and self.tools and use_agent:
-                logger.info(f"Processing with agent tools: {[tool.name for tool in self.tools]}")
-                
+            # Try RAG first if enabled and available
+            if use_rag and self.rag_chain:
                 try:
-                    response = await self.agent_executor.ainvoke({
-                        "input": message
-                    })
-                    
-                    result = response.get("output", "Brak odpowiedzi z agenta")
-                    logger.info("Agent response generated successfully")
-                    return result
-                    
-                except Exception as agent_error:
-                    logger.error(f"Agent execution error: {agent_error}")
-                    logger.info("Falling back to direct LLM response")
-                    return await self._direct_llm_response(message)
-            else:
-                # Direct LLM response when agent disabled or unavailable
-                logger.info("Using direct LLM response (agent disabled or unavailable)")
-                return await self._direct_llm_response(message)
-                
+                    response = await self.process_rag_query(message)
+                    if response:
+                        return response
+                except Exception as e:
+                    logger.warning(f"RAG processing failed, falling back to direct LLM: {e}")
+            
+            # Fallback to direct LLM response
+            return await self._direct_llm_response(message)
+            
         except Exception as e:
             logger.error(f"Error processing message: {e}")
-            return f"Przepraszam, wystąpił błąd podczas przetwarzania wiadomości: {str(e)}"
+            raise AIEngineError(f"Failed to process message: {e}")
     
     async def _direct_llm_response(self, message: str) -> str:
         """Get direct response from LLM without tools."""

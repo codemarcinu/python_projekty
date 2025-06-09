@@ -161,6 +161,26 @@ class LLMManager:
         # This line should never be reached due to the raise in the loop
         raise ModelUnavailableError("Unexpected error in generate method")
 
+    async def get_model_status(self) -> dict:
+        """Get the current status of the LLM model.
+        
+        Returns:
+            dict: Dictionary containing model status information:
+                - model: Name of the current model
+                - status: Current status ("online" or "offline")
+        """
+        try:
+            await self.validate_ollama_model()
+            return {
+                "model": self.settings.llm.model_name,
+                "status": "online"
+            }
+        except ModelUnavailableError:
+            return {
+                "model": self.settings.llm.model_name,
+                "status": "offline"
+            }
+
 # Create global LLM manager instance
 llm_manager = LLMManager()
 

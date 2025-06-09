@@ -3,20 +3,24 @@ FastAPI web interface for the AI Assistant.
 Provides endpoints for chat interaction and document management.
 """
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Dict
 from uuid import uuid4
 from datetime import datetime
 import logging
 import json
+import psutil
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from core.ai_engine import get_ai_engine
 from core.conversation_handler import get_conversation_manager, Conversation
+from core.llm_manager import get_llm_manager
+from core.rag_manager import RAGManager
+from core.config_manager import get_settings
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -30,33 +34,37 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # Initialize templates
 templates = Jinja2Templates(directory="templates")
 
+# Initialize managers
+llm_manager = get_llm_manager()
+rag_manager = RAGManager(get_settings().rag)
 
 class ChatMessage(BaseModel):
     """Model for chat messages."""
     role: str
     content: str
-
+    model: Optional[str] = "gemma3:12b"
+    use_rag: Optional[bool] = True
 
 class ChatResponse(BaseModel):
     """Model for chat responses."""
     message: str
     conversation_id: str
-
+    model: str
+    timestamp: datetime
 
 @app.get("/", response_class=HTMLResponse)
-async def get_chat_interface(request: Request):
-    """Serve the chat interface."""
+async def get_dashboard(request: Request):
+    """Serve the dashboard interface."""
     return templates.TemplateResponse(
-        "chat.html",
+        "dashboard.html",
         {"request": request}
     )
 
-
-@app.websocket("/ws/{conversation_id}")
-async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
-    """Handle WebSocket connections for real-time chat."""
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    """Handle WebSocket connections for real-time chat and updates."""
     await websocket.accept()
-    logger.info(f"WebSocket connection established for conversation {conversation_id}")
+    logger.info("WebSocket connection established")
     
     try:
         while True:
@@ -70,52 +78,58 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
                 except json.JSONDecodeError as e:
                     logger.error(f"Received invalid JSON from client: {e}")
                     await websocket.send_json({
-                        "error": "Nieprawidłowy format danych. Spróbuj ponownie."
+                        "type": "error",
+                        "message": "Nieprawidłowy format danych. Spróbuj ponownie."
                     })
                     continue
                 
-                # Validate message format
-                if not isinstance(data, dict):
+                # Handle different message types
+                message_type = data.get("type", "")
+                
+                if message_type == "message":
+                    # Process chat message
+                    message = data.get("content", "").strip()
+                    model = data.get("model", "gemma3:12b")
+                    use_rag = data.get("use_rag", True)
+                    
+                    if not message:
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": "Wiadomość nie może być pusta."
+                        })
+                        continue
+                    
+                    # Process message through AI engine
+                    ai_engine = get_ai_engine()
+                    response = await ai_engine.process_message(
+                        message=message,
+                        model=model,
+                        use_rag=use_rag
+                    )
+                    
+                    # Send response
                     await websocket.send_json({
-                        "error": "Nieprawidłowy format wiadomości. Oczekiwano obiektu JSON."
+                        "type": "message",
+                        "content": response,
+                        "model": model,
+                        "timestamp": datetime.now().isoformat()
                     })
-                    continue
-                
-                message = data.get("message", "").strip()
-                use_agent = data.get("use_agent", False)
-                
-                if not message or not isinstance(message, str):
-                    await websocket.send_json({
-                        "error": "Wiadomość nie może być pusta i musi być tekstem."
-                    })
-                    continue
-                
-                # Process message through AI engine
-                ai_engine = get_ai_engine()
-                response = await ai_engine.process_message(
-                    message=message,
-                    conversation_id=conversation_id,
-                    use_agent=use_agent
-                )
-                
-                # Send response
-                await websocket.send_json({
-                    "response": response,
-                    "conversation_id": conversation_id,
-                    "timestamp": datetime.now().isoformat()
-                })
-                
+                    
+                    # Update stats
+                    await send_stats_update(websocket)
+                    
             except WebSocketDisconnect:
-                logger.info(f"WebSocket connection closed for conversation {conversation_id}")
+                logger.info("WebSocket connection closed")
                 break
             except Exception as e:
                 logger.error(f"Error processing WebSocket message: {e}")
                 try:
                     await websocket.send_json({
-                        "error": f"Błąd przetwarzania: {str(e)}"
+                        "type": "error",
+                        "message": f"Błąd przetwarzania: {str(e)}"
                     })
                 except:
-                    break  # Connection likely closed
+                    break
                 
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
@@ -125,15 +139,57 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
         except:
             pass
 
+async def send_stats_update(websocket: WebSocket):
+    """Send current stats to the client."""
+    try:
+        stats = await get_current_stats()
+        await websocket.send_json({
+            "type": "stats",
+            "data": stats
+        })
+    except Exception as e:
+        logger.error(f"Error sending stats update: {e}")
 
-@app.post("/upload", response_model=dict)
+async def get_current_stats() -> Dict:
+    """Get current system stats."""
+    try:
+        # Get model status
+        model_status = await llm_manager.get_model_status()
+        
+        # Get document count
+        doc_count = rag_manager.get_document_count()
+        
+        # Get memory usage
+        memory = psutil.Process().memory_info().rss / 1024 / 1024  # MB
+        
+        return {
+            "active_model": model_status["model"],
+            "status": model_status["status"],
+            "doc_count": doc_count,
+            "memory_usage": f"{memory:.1f} MB"
+        }
+    except Exception as e:
+        logger.error(f"Error getting stats: {e}")
+        return {
+            "active_model": "unknown",
+            "status": "error",
+            "doc_count": 0,
+            "memory_usage": "0 MB"
+        }
+
+@app.get("/api/stats")
+async def get_stats():
+    """Get current system stats."""
+    return await get_current_stats()
+
+@app.post("/api/upload")
 async def upload_document(file: UploadFile = File(...)):
     """Upload a document to the RAG system."""
     if not file.filename:
         raise HTTPException(status_code=400, detail="No filename provided")
     
     # Validate file type
-    allowed_types = {".pdf", ".txt", ".md"}
+    allowed_types = {".pdf", ".txt", ".md", ".doc", ".docx"}
     file_ext = Path(file.filename).suffix.lower()
     if file_ext not in allowed_types:
         raise HTTPException(
@@ -141,88 +197,63 @@ async def upload_document(file: UploadFile = File(...)):
             detail=f"Unsupported file type. Allowed types: {', '.join(allowed_types)}"
         )
     
+    # Validate file size (50MB limit)
+    content = await file.read()
+    if len(content) > 50 * 1024 * 1024:  # 50MB
+        raise HTTPException(
+            status_code=400,
+            detail="File too large. Maximum size is 50MB."
+        )
+    
     # Save file
-    upload_dir = Path("data/uploads")
+    upload_dir = Path("uploads")
     upload_dir.mkdir(parents=True, exist_ok=True)
     file_path = upload_dir / file.filename
     
     with file_path.open("wb") as f:
-        content = await file.read()
         f.write(content)
     
     # Process file with RAG system
-    ai_engine = get_ai_engine()
-    # TODO: Implement document processing
-    
-    return {"message": "Document uploaded successfully", "filename": file.filename}
-
-
-@app.get("/conversations", response_model=List[dict])
-async def list_conversations():
-    """List all conversations."""
-    conversation_manager = get_conversation_manager()
-    conversations = conversation_manager.list_conversations()
-    return [
-        {
-            "id": conv_id,
-            "title": title,
-            "updated_at": updated_at.isoformat()
-        }
-        for conv_id, title, updated_at in conversations
-    ]
-
-
-@app.post("/conversations", response_model=dict)
-async def create_conversation():
-    """Create a new conversation."""
-    conversation_id = str(uuid4())
-    conversation_manager = get_conversation_manager()
-    conversation = conversation_manager.create_conversation(conversation_id)
-    return {
-        "id": conversation.id,
-        "title": conversation.title,
-        "created_at": conversation.created_at.isoformat()
-    }
-
-
-@app.delete("/conversations/{conversation_id}")
-async def delete_conversation(conversation_id: str):
-    """Delete a conversation."""
-    conversation_manager = get_conversation_manager()
-    if conversation_manager.delete_conversation(conversation_id):
-        return {"message": "Conversation deleted successfully"}
-    raise HTTPException(status_code=404, detail="Conversation not found")
-
-
-@app.get("/api/agent/status")
-async def get_agent_status():
-    """Get current agent status."""
     try:
-        ai_engine = get_ai_engine()
-        status = ai_engine.get_agent_status()
+        file_id = rag_manager.add_document(file_path)
         return {
-            "status": "success",
-            "data": status
+            "success": True,
+            "file_id": file_id,
+            "filename": file.filename
         }
     except Exception as e:
-        logger.error(f"Error getting agent status: {e}")
-        return {
-            "status": "error",
-            "message": str(e)
-        }
+        logger.error(f"Error processing document: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error processing document: {str(e)}"
+        )
 
-@app.post("/api/agent/toggle")
-async def toggle_agent(request: dict):
-    """Toggle agent functionality."""
+@app.delete("/api/documents/{file_id}")
+async def delete_document(file_id: str):
+    """Delete a document from the RAG system."""
     try:
-        enabled = request.get("enabled", True)
-        # Here you can add logic to temporarily disable agent
+        if rag_manager.delete_document(file_id):
+            return {"success": True, "message": "Document deleted successfully"}
+        raise HTTPException(status_code=404, detail="Document not found")
+    except Exception as e:
+        logger.error(f"Error deleting document: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error deleting document: {str(e)}"
+        )
+
+@app.get("/api/documents")
+async def list_documents():
+    """List all documents in the RAG system."""
+    try:
+        documents = rag_manager.list_documents()
         return {
-            "status": "success",
-            "agent_enabled": enabled
+            "success": True,
+            "documents": documents
         }
     except Exception as e:
-        return {
-            "status": "error", 
-            "message": str(e)
-        }
+        logger.error(f"Error listing documents: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error listing documents: {str(e)}"
+        )
