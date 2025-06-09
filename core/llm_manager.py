@@ -1,72 +1,96 @@
 """
-LLM Manager for handling interactions with Ollama models.
-Provides a unified interface for text generation and embeddings.
+LLM Manager for handling language model interactions.
+Provides a unified interface for different LLM providers.
 """
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional, cast
+from datetime import datetime
 import asyncio
 import logging
-from datetime import datetime
 import aiohttp
+from pathlib import Path
 
-from langchain_core.callbacks import CallbackManager
-from langchain_core.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
-from langchain_community.llms import Ollama
-from langchain_community.embeddings import OllamaEmbeddings
+from langchain_ollama import OllamaLLM
 from langchain_core.language_models import BaseLLM
+from langchain_core.callbacks import CallbackManagerForLLMRun
 
 from .config_manager import get_settings
+from .exceptions import ModelUnavailableError
 
 # Configure logging
-logging.basicConfig(
-    filename='logs/llm_manager.log',
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
 logger = logging.getLogger(__name__)
 
-class LLMError(Exception):
-    """Base exception for LLM-related errors."""
-    pass
-
-class ModelUnavailableError(LLMError):
-    """Raised when the model is unavailable after retries."""
-    pass
-
 class LLMManager:
-    """Manager for handling LLM operations using Ollama."""
+    """Manager for handling LLM interactions."""
     
     def __init__(self):
-        """Initialize the LLM manager with configuration from settings."""
+        """Initialize the LLM manager."""
         self.settings = get_settings()
         self._llm: Optional[BaseLLM] = None
-        self._embeddings: Optional[OllamaEmbeddings] = None
         self._last_error_time: Optional[datetime] = None
         self._error_count = 0
-        
-    @property
-    def llm(self) -> BaseLLM:
-        """Get or create the LLM instance."""
-        if self._llm is None:
-            callback_manager = CallbackManager([StreamingStdOutCallbackHandler()])
-            self._llm = Ollama(
-                model=self.settings.llm.model_name,
-                temperature=self.settings.llm.temperature,
-                callback_manager=callback_manager
-            )
-        if self._llm is None:
-            raise ModelUnavailableError("Failed to initialize LLM")
-        return self._llm
+        self._initialize_llm()
+    
+    def _initialize_llm(self) -> None:
+        """Initialize the LLM with proper configuration."""
+        try:
+            if self.settings.llm.provider.lower() == "ollama":
+                self._llm = OllamaLLM(
+                    model=self.settings.llm.model_name,
+                    base_url=self.settings.llm.ollama_host,
+                    temperature=self.settings.llm.temperature
+                )
+                logger.info(f"Initialized Ollama LLM with model {self.settings.llm.model_name}")
+            else:
+                raise ValueError(f"Unsupported LLM provider: {self.settings.llm.provider}")
+        except Exception as e:
+            logger.error(f"Error initializing LLM: {e}")
+            raise ModelUnavailableError(f"Failed to initialize LLM: {e}")
     
     @property
-    def embeddings(self) -> OllamaEmbeddings:
-        """Get or create the embeddings instance."""
-        if self._embeddings is None:
-            self._embeddings = OllamaEmbeddings(
-                model=self.settings.rag.embedding_model
-            )
-        if self._embeddings is None:
-            raise ModelUnavailableError("Failed to initialize embeddings")
-        return self._embeddings
+    def llm(self) -> BaseLLM:
+        """Get the configured LLM instance."""
+        if self._llm is None:
+            self._initialize_llm()
+        return cast(BaseLLM, self._llm)  # We know it's not None after initialization
+    
+    def get_health_status(self) -> dict:
+        """Get the health status of the LLM."""
+        return {
+            "provider": self.settings.llm.provider,
+            "model": self.settings.llm.model_name,
+            "last_error": self._last_error_time.isoformat() if self._last_error_time else None,
+            "error_count": self._error_count,
+            "status": "healthy" if self._llm is not None else "unhealthy"
+        }
+    
+    async def validate_ollama_model(self) -> None:
+        """
+        Validate that Ollama server is running and the required model is available.
+        Raises ModelUnavailableError with a user-friendly message if not.
+        """
+        host = self.settings.llm.ollama_host.rstrip("/")
+        model = self.settings.llm.model_name
+        tags_url = f"{host}/api/tags"
+        
+        try:
+            timeout = aiohttp.ClientTimeout(total=5)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(tags_url) as resp:
+                    if resp.status != 200:
+                        raise ModelUnavailableError(f"Ollama API not available at {host} (status {resp.status})")
+                    data = await resp.json()
+                    available_models = [m['name'] for m in data.get('models', [])]
+                    if model not in available_models:
+                        raise ModelUnavailableError(
+                            f"Model '{model}' is not available in Ollama. Dostępne modele: {', '.join(available_models) if available_models else 'brak'}. "
+                            f"Użyj 'ollama pull {model}' lub zmień PRIMARY_MODEL w .env."
+                        )
+        except aiohttp.ClientError as e:
+            logger.error(f"Ollama validation error: {e}")
+            raise ModelUnavailableError(f"Nie można połączyć z Ollama ({host}). Szczegóły: {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error during Ollama validation: {e}")
+            raise ModelUnavailableError(f"Nieoczekiwany błąd podczas walidacji Ollama: {e}")
     
     async def generate(
         self,
@@ -91,6 +115,9 @@ class LLMManager:
             ModelUnavailableError: If model is unavailable after retries
             asyncio.TimeoutError: If generation takes too long
         """
+        if not prompt or not isinstance(prompt, str):
+            raise ValueError("Prompt must be a non-empty string")
+            
         full_prompt = f"{system_prompt}\n\n{prompt}" if system_prompt else prompt
         
         for attempt in range(max_retries):
@@ -133,111 +160,6 @@ class LLMManager:
         
         # This line should never be reached due to the raise in the loop
         raise ModelUnavailableError("Unexpected error in generate method")
-    
-    async def get_embeddings(self, texts: List[str], max_retries: int = 3) -> List[List[float]]:
-        """
-        Get embeddings for a list of texts with retry mechanism.
-        
-        Args:
-            texts: List of texts to embed
-            max_retries: Maximum number of retry attempts
-            
-        Returns:
-            List of embedding vectors
-            
-        Raises:
-            ModelUnavailableError: If model is unavailable after retries
-            asyncio.TimeoutError: If embedding generation takes too long
-        """
-        for attempt in range(max_retries):
-            try:
-                logger.info(f"Attempting embeddings (attempt {attempt + 1}/{max_retries})")
-                async with asyncio.timeout(self.settings.llm.timeout):
-                    embeddings = await self.embeddings.aembed_documents(texts)
-                    self._error_count = 0  # Reset error count on success
-                    return embeddings
-                
-            except asyncio.TimeoutError:
-                logger.error(f"Embeddings timeout after {self.settings.llm.timeout} seconds")
-                self._last_error_time = datetime.now()
-                self._error_count += 1
-                
-                if attempt == max_retries - 1:
-                    raise ModelUnavailableError(
-                        f"Embeddings model timeout after {max_retries} attempts"
-                    )
-                
-                # Exponential backoff
-                wait_time = 2 ** attempt
-                logger.info(f"Retrying in {wait_time} seconds...")
-                await asyncio.sleep(wait_time)
-                
-            except Exception as e:
-                self._last_error_time = datetime.now()
-                self._error_count += 1
-                logger.error(f"Embeddings error (attempt {attempt + 1}): {str(e)}")
-                
-                if attempt == max_retries - 1:
-                    raise ModelUnavailableError(
-                        f"Embeddings model unavailable after {max_retries} attempts. Last error: {str(e)}"
-                    )
-                
-                # Exponential backoff
-                wait_time = 2 ** attempt
-                logger.info(f"Retrying in {wait_time} seconds...")
-                await asyncio.sleep(wait_time)
-        
-        # This line should never be reached due to the raise in the loop
-        raise ModelUnavailableError("Unexpected error in get_embeddings method")
-    
-    def get_available_models(self) -> List[Dict[str, Any]]:
-        """
-        Get list of available Ollama models.
-        
-        Returns:
-            List of model information dictionaries
-        """
-        # TODO: Implement model listing from Ollama API
-        return []
-    
-    def get_health_status(self) -> Dict[str, Any]:
-        """
-        Get the current health status of the LLM manager.
-        
-        Returns:
-            Dictionary containing health metrics
-        """
-        return {
-            "error_count": self._error_count,
-            "last_error_time": self._last_error_time.isoformat() if self._last_error_time else None,
-            "model_initialized": self._llm is not None,
-            "embeddings_initialized": self._embeddings is not None
-        }
-
-    async def validate_ollama_model(self) -> None:
-        """
-        Validate that Ollama server is running and the required model is available.
-        Raises ModelUnavailableError with a user-friendly message if not.
-        """
-        host = self.settings.llm.ollama_host.rstrip("/")
-        model = self.settings.llm.model_name
-        tags_url = f"{host}/api/tags"
-        try:
-            timeout = aiohttp.ClientTimeout(total=5)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(tags_url) as resp:
-                    if resp.status != 200:
-                        raise ModelUnavailableError(f"Ollama API not available at {host} (status {resp.status})")
-                    data = await resp.json()
-                    available_models = [m['name'] for m in data.get('models', [])]
-                    if model not in available_models:
-                        raise ModelUnavailableError(
-                            f"Model '{model}' is not available in Ollama. Dostępne modele: {', '.join(available_models) if available_models else 'brak'}. "
-                            f"Użyj 'ollama pull {model}' lub zmień PRIMARY_MODEL w .env."
-                        )
-        except Exception as e:
-            logger.error(f"Ollama validation error: {e}")
-            raise ModelUnavailableError(f"Nie można połączyć z Ollama ({host}) lub model '{model}' nie jest dostępny. Szczegóły: {e}")
 
 # Create global LLM manager instance
 llm_manager = LLMManager()

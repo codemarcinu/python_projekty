@@ -22,4 +22,19 @@ class DatabaseError(Exception):
 
 class ConfigError(Exception):
     """Wyjątek występujący podczas obsługi konfiguracji."""
+    pass
+
+
+class ModelUnavailableError(AIEngineError):
+    """Raised when the LLM model is unavailable or fails to respond."""
+    pass
+
+
+class ConfigurationError(AIEngineError):
+    """Raised when there is a configuration error."""
+    pass
+
+
+class ValidationError(AIEngineError):
+    """Raised when input validation fails."""
     pass 

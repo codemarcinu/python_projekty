@@ -5,6 +5,8 @@ Provides endpoints for chat interaction and document management.
 from pathlib import Path
 from typing import List, Optional
 from uuid import uuid4
+from datetime import datetime
+import logging
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException, Request
 from fastapi.responses import HTMLResponse
@@ -15,6 +17,8 @@ from pydantic import BaseModel
 from core.ai_engine import get_ai_engine
 from core.conversation_handler import get_conversation_manager, Conversation
 
+# Configure logging
+logger = logging.getLogger(__name__)
 
 # Initialize FastAPI app
 app = FastAPI(title="AI Assistant")
@@ -51,30 +55,48 @@ async def get_chat_interface(request: Request):
 async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
     """Handle WebSocket connections for real-time chat."""
     await websocket.accept()
-    
-    # Get or create conversation
-    conversation_manager = get_conversation_manager()
-    conversation = conversation_manager.get_conversation(conversation_id)
-    if not conversation:
-        conversation = conversation_manager.create_conversation(conversation_id)
+    logger.info(f"WebSocket connection established for conversation {conversation_id}")
     
     try:
         while True:
             # Receive message
-            message = await websocket.receive_text()
+            data = await websocket.receive_json()
+            message = data.get("message", "")
+            use_agent = data.get("use_agent", False)
             
-            # Process message through AI engine
-            ai_engine = get_ai_engine()
-            response = await ai_engine.process_message(
-                conversation=conversation,
-                message=message
-            )
+            if not message.strip():
+                await websocket.send_json({
+                    "error": "Wiadomość nie może być pusta"
+                })
+                continue
             
-            # Send response
-            await websocket.send_text(response)
-            
+            try:
+                # Process message through AI engine
+                ai_engine = get_ai_engine()
+                response = await ai_engine.process_message(
+                    message=message,
+                    conversation_id=conversation_id,
+                    use_agent=use_agent
+                )
+                
+                # Send response
+                await websocket.send_json({
+                    "response": response,
+                    "conversation_id": conversation_id,
+                    "timestamp": datetime.now().isoformat()
+                })
+                
+            except Exception as e:
+                logger.error(f"Error processing message: {e}")
+                await websocket.send_json({
+                    "error": f"Błąd przetwarzania: {str(e)}"
+                })
+                
     except WebSocketDisconnect:
-        pass
+        logger.info(f"WebSocket connection closed for conversation {conversation_id}")
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+        await websocket.close()
 
 
 @app.post("/upload", response_model=dict)

@@ -11,7 +11,9 @@ import os
 from pathlib import Path
 
 from langchain.chains import ConversationalRetrievalChain
-from langchain.memory import ConversationBufferMemory
+from langchain_core.memory import BaseMemory
+from langchain_core.chat_history import BaseChatMessageHistory
+from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.prompts import PromptTemplate
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -73,17 +75,12 @@ class AIEngine:
                 # Create empty vector store if loading fails
                 vector_store = None
             self.vector_store = vector_store
-            # Set up conversational memory
-            self.memory = ConversationBufferMemory(
-                memory_key="chat_history",
-                return_messages=True
-            )
+            
             # Set up conversational retrieval chain only if vector store exists
             if self.vector_store:
                 self.rag_chain = ConversationalRetrievalChain.from_llm(
                     llm=self.llm_manager.llm,
                     retriever=self.vector_store.as_retriever(),
-                    memory=self.memory,
                     verbose=True
                 )
             else:
@@ -94,10 +91,6 @@ class AIEngine:
             # Fallback setup
             self.vector_store = None
             self.rag_chain = None
-            self.memory = ConversationBufferMemory(
-                memory_key="chat_history",
-                return_messages=True
-            )
     
     def _setup_tools(self) -> None:
         """Set up tools for the agent."""
@@ -224,9 +217,10 @@ Thought: {agent_scratchpad}"""
             AI response
         """
         try:
-            if message is None:
-                logger.error("Message argument is None in process_message.")
+            if not message or not isinstance(message, str):
+                logger.error("Invalid message in process_message.")
                 return "No message provided."
+                
             if use_agent and self.agent_executor:
                 # Use agent with tools
                 response = await self.agent_executor.ainvoke({
@@ -236,9 +230,7 @@ Thought: {agent_scratchpad}"""
                 return str(output) if output is not None else "No response generated"
             else:
                 # Direct LLM response
-                if message is None:
-                    return "No message provided."
-                response = await self.llm_manager.generate(str(message))
+                response = await self.llm_manager.generate(message)
                 return str(response) if response is not None else "No response generated"
                 
         except Exception as e:
