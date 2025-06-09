@@ -69,14 +69,31 @@ class AIEngine:
         target_tool = get_tool(tool_name)
         arg_spec = inspect.getfullargspec(target_tool)
         
-        prompt = f"""Your task is to extract arguments for the tool '{tool_name}' from the user's request.
-        The tool's required arguments are: {arg_spec.args}.
-        The tool's description is: "{target_tool.__doc__.strip() if target_tool.__doc__ else 'No description available.'}"
+        # Specjalna obsługa dla narzędzia pogodowego
+        if tool_name == "get_current_weather":
+            prompt = f"""Your task is to extract the city name for the weather query.
+            The user's request is: "{user_prompt}"
+            
+            Rules:
+            1. Always use the base form of the city name (e.g., "Warszawa" not "warszawie")
+            2. Capitalize the first letter of the city name
+            3. Remove any prepositions or articles
+            4. Return ONLY a JSON object with the city name
+            
+            Example responses:
+            - For "jaka pogoda w warszawie?" -> {{"city": "Warszawa"}}
+            - For "pogoda dla krakowa" -> {{"city": "Krakow"}}
+            
+            JSON:"""
+        else:
+            prompt = f"""Your task is to extract arguments for the tool '{tool_name}' from the user's request.
+            The tool's required arguments are: {arg_spec.args}.
+            The tool's description is: "{target_tool.__doc__.strip() if target_tool.__doc__ else 'No description available.'}"
 
-        User's request: "{user_prompt}"
+            User's request: "{user_prompt}"
 
-        Respond ONLY with a valid JSON object containing the arguments. If no arguments are needed, respond with an empty JSON object {{}}.
-        JSON:"""
+            Respond ONLY with a valid JSON object containing the arguments. If no arguments are needed, respond with an empty JSON object {{}}.
+            JSON:"""
         
         response = self.llm.generate_response([{'role': 'user', 'content': prompt}])
         try:
