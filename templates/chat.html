@@ -1,61 +1,26 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="pl">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Assistant</title>
-    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
-    <style>
-        .chat-container {
-            height: calc(100vh - 200px);
-        }
-        .message {
-            max-width: 80%;
-            margin: 8px;
-            padding: 12px;
-            border-radius: 8px;
-        }
-        .user-message {
-            background-color: #e3f2fd;
-            margin-left: auto;
-        }
-        .assistant-message {
-            background-color: #f5f5f5;
-            margin-right: auto;
-        }
-    </style>
+    <title>AI Asystent</title>
+    <link rel="stylesheet" href="/static/styles.css">
 </head>
-<body class="bg-gray-100">
-    <div class="container mx-auto px-4 py-8">
-        <header class="mb-8">
-            <h1 class="text-3xl font-bold text-center text-gray-800">AI Assistant</h1>
-        </header>
-
-        <div class="bg-white rounded-lg shadow-lg p-4">
-            <!-- Chat messages container -->
-            <div id="chat-messages" class="chat-container overflow-y-auto mb-4">
-                <!-- Messages will be added here dynamically -->
-            </div>
-
-            <!-- Input form -->
-            <form id="chat-form" class="flex gap-2">
-                <input
-                    type="text"
-                    id="message-input"
-                    class="flex-1 p-2 border rounded-lg focus:outline-none focus:border-blue-500"
-                    placeholder="Type your message..."
-                    required
-                >
-                <button
-                    type="submit"
-                    class="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 focus:outline-none"
-                >
-                    Send
-                </button>
-            </form>
-        </div>
+<body>
+    <div id="connection-status" class="status-disconnected">Rozłączony</div>
+    
+    <div id="use-agent-container">
+        <input type="checkbox" id="use-agent" name="use-agent">
+        <label for="use-agent">Tryb agenta</label>
     </div>
-
+    
+    <div id="chat-messages"></div>
+    
+    <form id="chat-form">
+        <input type="text" id="message-input" placeholder="Napisz wiadomość..." autocomplete="off">
+        <button type="submit" id="send-button">Wyślij</button>
+    </form>
+    
     <script>
         // Generate a unique conversation ID
         const conversationId = crypto.randomUUID();
@@ -67,22 +32,49 @@
         const chatMessages = document.getElementById('chat-messages');
         const chatForm = document.getElementById('chat-form');
         const messageInput = document.getElementById('message-input');
+        const useAgentCheckbox = document.getElementById('use-agent');
+        const connectionStatus = document.getElementById('connection-status');
         
         // Handle WebSocket connection
         ws.onopen = () => {
             console.log('Connected to WebSocket');
+            connectionStatus.textContent = 'Połączony';
+            connectionStatus.className = 'status-connected';
+            addSystemMessage('Połączono z serwerem');
         };
         
         ws.onmessage = (event) => {
-            addMessage('assistant', event.data);
+            try {
+                const data = JSON.parse(event.data);
+                if (data.error) {
+                    addSystemMessage(data.error);
+                } else if (data.response) {
+                    addMessage('assistant', data.response);
+                }
+            } catch (error) {
+                console.error('Error parsing message:', error);
+                addSystemMessage('Błąd przetwarzania odpowiedzi');
+            }
         };
         
         ws.onerror = (error) => {
             console.error('WebSocket error:', error);
+            connectionStatus.textContent = 'Błąd połączenia';
+            connectionStatus.className = 'status-disconnected';
+            addSystemMessage('Błąd połączenia WebSocket');
         };
         
         ws.onclose = () => {
             console.log('Disconnected from WebSocket');
+            connectionStatus.textContent = 'Rozłączony';
+            connectionStatus.className = 'status-disconnected';
+            addSystemMessage('Rozłączono z serwerem');
+            
+            // Try to reconnect after 3 seconds
+            setTimeout(() => {
+                console.log('Attempting to reconnect...');
+                window.location.reload();
+            }, 3000);
         };
         
         // Handle form submission
@@ -95,8 +87,20 @@
             // Add user message to chat
             addMessage('user', message);
             
+            // Prepare message data
+            const messageData = {
+                message: message,
+                use_agent: useAgentCheckbox?.checked || false,
+                timestamp: new Date().toISOString()
+            };
+            
             // Send message through WebSocket
-            ws.send(message);
+            try {
+                ws.send(JSON.stringify(messageData));
+            } catch (error) {
+                console.error('Error sending message:', error);
+                addSystemMessage('Błąd wysyłania wiadomości');
+            }
             
             // Clear input
             messageInput.value = '';
@@ -106,11 +110,34 @@
         function addMessage(role, content) {
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${role}-message`;
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content';
+            contentDiv.textContent = content;
+            
+            const timestampDiv = document.createElement('div');
+            timestampDiv.className = 'message-timestamp';
+            timestampDiv.textContent = new Date().toLocaleTimeString();
+            
+            messageDiv.appendChild(contentDiv);
+            messageDiv.appendChild(timestampDiv);
+            
+            chatMessages.appendChild(messageDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+        
+        // Add system message
+        function addSystemMessage(content) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message system-message';
             messageDiv.textContent = content;
             
             chatMessages.appendChild(messageDiv);
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
+        
+        // Focus input on load
+        messageInput.focus();
     </script>
 </body>
 </html> 

@@ -62,7 +62,17 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
         while True:
             try:
                 # Receive message
-                data = await websocket.receive_json()
+                raw_data = await websocket.receive_text()
+                
+                # Parse JSON with error handling
+                try:
+                    data = json.loads(raw_data)
+                except json.JSONDecodeError as e:
+                    logger.error(f"Received invalid JSON from client: {e}")
+                    await websocket.send_json({
+                        "error": "Nieprawidłowy format danych. Spróbuj ponownie."
+                    })
+                    continue
                 
                 # Validate message format
                 if not isinstance(data, dict):
@@ -71,7 +81,7 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
                     })
                     continue
                 
-                message = data.get("message", "")
+                message = data.get("message", "").strip()
                 use_agent = data.get("use_agent", False)
                 
                 if not message or not isinstance(message, str):
@@ -95,22 +105,25 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
                     "timestamp": datetime.now().isoformat()
                 })
                 
-            except json.JSONDecodeError:
-                logger.error("Received invalid JSON from client")
-                await websocket.send_json({
-                    "error": "Nieprawidłowy format JSON. Oczekiwano obiektu JSON."
-                })
+            except WebSocketDisconnect:
+                logger.info(f"WebSocket connection closed for conversation {conversation_id}")
+                break
             except Exception as e:
-                logger.error(f"Error processing message: {e}")
-                await websocket.send_json({
-                    "error": f"Błąd przetwarzania: {str(e)}"
-                })
+                logger.error(f"Error processing WebSocket message: {e}")
+                try:
+                    await websocket.send_json({
+                        "error": f"Błąd przetwarzania: {str(e)}"
+                    })
+                except:
+                    break  # Connection likely closed
                 
-    except WebSocketDisconnect:
-        logger.info(f"WebSocket connection closed for conversation {conversation_id}")
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
-        await websocket.close()
+    finally:
+        try:
+            await websocket.close()
+        except:
+            pass
 
 
 @app.post("/upload", response_model=dict)
