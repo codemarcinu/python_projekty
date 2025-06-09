@@ -28,7 +28,7 @@ class AIEngine:
         load_plugins(plugins_dir)
         
         # Przygotowanie opisu narzędzi dla promptu
-        self.tools_prompt = self._prepare_tools_prompt()
+        self.tools_description = self._prepare_tools_prompt()
 
     def _prepare_tools_prompt(self) -> str:
         """Przygotowuje opis dostępnych narzędzi w formacie tekstowym.
@@ -36,7 +36,7 @@ class AIEngine:
         Returns:
             str: Sformatowany opis narzędzi do użycia w promptcie.
         """
-        tools_description = "Dostępne narzędzia:\n"
+        tools_description = ""
         for tool_name in self._get_available_tools():
             tool = get_tool(tool_name)
             tools_description += f"- {tool_name}: {tool.__doc__ or 'Brak opisu'}\n"
@@ -57,13 +57,19 @@ class AIEngine:
         Returns:
             str: Prompt systemowy zawierający instrukcje i opis narzędzi.
         """
-        return f"""Jesteś asystentem AI działającym lokalnie. Możesz odpowiadać użytkownikowi lub używać dostępnych narzędzi.
-Jeśli chcesz użyć narzędzia, odpowiedz w formacie JSON:
-{{"tool": "nazwa_narzedzia", "args": {{"arg1": "wartosc1"}}}}
+        return f"""Jesteś pomocnym asystentem AI. Masz dostęp do zestawu narzędzi.
 
-{self.tools_prompt}
+OTO DOSTĘPNE NARZĘDZIA:
+{self.tools_description}
 
-Jeśli nie potrzebujesz używać narzędzia, po prostu odpowiedz użytkownikowi w języku naturalnym."""
+ZASADY POSTĘPOWANIA:
+- Kiedy chcesz użyć narzędzia, ZAWSZE odpowiadaj TYLKO I WYŁĄCZNIE obiektem JSON w formacie: {{"tool": "nazwa_narzedzia", "args": {{"arg1": "wartosc1", ...}}}}.
+- NIE WOLNO Ci dodawać żadnego tekstu przed ani po obiekcie JSON. Twoja odpowiedź musi być czystym JSON-em.
+- Jeśli nie chcesz używać narzędzia, odpowiedz użytkownikowi w normalny sposób, jako zwykły tekst.
+
+PRZYKŁAD UŻYCIA NARZĘDZIA:
+Pytanie użytkownika: Ile to jest 5 dodać 7?
+Twoja odpowiedź (JSON): {{"tool": "add", "args": {{"a": 5, "b": 7}}}}"""
 
     def _parse_llm_response(self, response: str) -> Optional[Dict[str, Any]]:
         """Próbuje sparsować odpowiedź LLM jako JSON.
