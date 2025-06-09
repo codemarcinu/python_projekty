@@ -89,26 +89,48 @@ class AIEngine:
             return {}
 
     def process_turn(self, conversation_history: List[Dict[str, str]]) -> str:
-        """Główna metoda przetwarzająca turę rozmowy."""
+        """Główna metoda przetwarzająca turę rozmowy z logiką dopytywania."""
         user_prompt = conversation_history[-1]['content']
-        
-        # ETAP 1: ROUTING
         chosen_tool_name = self._choose_tool(user_prompt)
 
-        # ETAP 2: WYKONANIE LUB ROZMOWA
-        if chosen_tool_name != "None":
+        if chosen_tool_name in ["complete_task", "delete_task"]:
+            # Logika specjalna dla narzędzi wymagających ID
             tool_function = get_tool(chosen_tool_name)
-            model_class = self.tool_arg_models.get(chosen_tool_name)
+            tool_args = self._get_tool_args(chosen_tool_name, user_prompt)
 
-            tool_args = {}
-            if model_class:  # Jeśli narzędzie ma zdefiniowany model argumentów
-                extracted_args = self._get_tool_args(chosen_tool_name, user_prompt)
+            if not tool_args.get("task_ids"):
+                # --- NOWA LOGIKA: Dopytywanie ---
+                print("DEBUG: Brak ID zadania, uruchamiam tryb dopytywania.")
+                current_tasks = get_tool("list_tasks")() # Wywołaj list_tasks, aby dostać listę
+                
+                clarification_prompt = f"""Your task is to ask the user for clarification. The user wants to '{chosen_tool_name}', but did not specify which task ID.
+                Based on the user's request and the current task list, formulate a helpful question in Polish suggesting which tasks they might mean.
+
+                Current task list:
+                {current_tasks}
+
+                User's original request: "{user_prompt}"
+
+                Formulate a clarifying question in Polish:"""
+
+                return self.llm.generate_response([{'role': 'user', 'content': clarification_prompt}])
+            else:
+                # Jeśli ID są podane, wykonaj narzędzie normalnie
                 try:
-                    # Walidacja za pomocą Pydantic
-                    validated_args = model_class(**extracted_args)
-                    tool_args = validated_args.model_dump()
-                except ValidationError as e:
-                    return f"Błąd walidacji argumentów dla narzędzia '{chosen_tool_name}':\n{e}"
+                    result = tool_function(**tool_args)
+                    return str(result)
+                except Exception as e:
+                    return f"Błąd podczas wykonywania narzędzia {chosen_tool_name}: {e}"
+
+        elif chosen_tool_name != "None":
+            # Standardowa obsługa dla pozostałych narzędzi
+            tool_function = get_tool(chosen_tool_name)
+            
+            if inspect.signature(tool_function).parameters:
+                tool_args = self._get_tool_args(chosen_tool_name, user_prompt)
+            else:
+                tool_args = {}
+                print(f"DEBUG: Tool '{chosen_tool_name}' requires no arguments.")
 
             try:
                 result = tool_function(**tool_args)
