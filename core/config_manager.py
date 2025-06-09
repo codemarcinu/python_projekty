@@ -9,9 +9,13 @@ import logging
 from pydantic import BaseModel, Field, validator
 from dotenv import load_dotenv
 
+# Create logs directory if it doesn't exist
+log_dir = Path("logs")
+log_dir.mkdir(parents=True, exist_ok=True)
+
 # Configure logging
 logging.basicConfig(
-    filename='logs/config.log',
+    filename=log_dir / "config.log",
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
