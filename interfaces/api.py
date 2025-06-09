@@ -41,6 +41,13 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 config = ConfigManager()
 engine = AIEngine(config)
 
+@app.on_event("startup")
+async def startup_event():
+    """Funkcja wykonywana przy starcie serwera."""
+    # Upewniamy się, że katalog uploads istnieje
+    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    print(f"Katalog uploads gotowy: {UPLOADS_DIR}")
+
 @app.get("/", response_class=HTMLResponse)
 async def read_index():
     """

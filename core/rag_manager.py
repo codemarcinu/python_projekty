@@ -164,4 +164,41 @@ class RAGManager:
         """
         if self.vector_store is None:
             return None
-        return self.vector_store.as_retriever() 
+        return self.vector_store.as_retriever()
+
+    def query(self, query: str) -> str:
+        """Wyszukuje odpowiedź na pytanie w bazie wektorowej.
+        
+        Args:
+            query (str): Pytanie do zadania.
+            
+        Returns:
+            str: Odpowiedź na pytanie.
+            
+        Raises:
+            ValueError: Jeśli baza wektorowa nie istnieje.
+        """
+        if self.vector_store is None:
+            raise ValueError("Baza wektorowa nie istnieje. Najpierw dodaj dokumenty używając metody add_document.")
+        
+        # Wyszukanie podobnych dokumentów
+        docs = self.vector_store.similarity_search(query, k=3)
+        
+        # Przygotowanie kontekstu z dokumentów
+        context = "\n".join(doc.page_content for doc in docs)
+        
+        # Przygotowanie promptu dla modelu
+        prompt = f"""Odpowiedz na pytanie na podstawie poniższego kontekstu.
+        Jeśli nie możesz znaleźć odpowiedzi w kontekście, powiedz o tym.
+        
+        Kontekst:
+        {context}
+        
+        Pytanie: {query}
+        
+        Odpowiedź:"""
+        
+        # Użycie modelu do wygenerowania odpowiedzi
+        response = self.config_manager.llm_model.generate(prompt)
+        
+        return response 

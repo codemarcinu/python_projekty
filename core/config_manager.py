@@ -9,6 +9,7 @@ from typing import Literal, Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import ValidationError
 from pathlib import Path
+from langchain_community.llms import Ollama
 
 
 class ConfigError(Exception):
@@ -44,6 +45,9 @@ class Settings(BaseSettings):
     # który lepiej radzi sobie z polskimi zapytaniami
     LLM_MODEL: str = "SpeakLeash/bielik-11b-v2.3-instruct:Q6_K"
     
+    # Nazwa modelu do embeddingów
+    EMBEDDING_MODEL: str = "SpeakLeash/bielik-11b-v2.3-instruct:Q6_K"
+    
     # Klucz API do serwisu pogodowego OpenWeatherMap
     WEATHER_API_KEY: str = ""
     
@@ -56,29 +60,64 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=True
     )
-
-
-def load_settings() -> Settings:
-    """
-    Wczytuje i waliduje ustawienia aplikacji.
     
-    Returns:
-        Settings: Instancja klasy Settings z wczytanymi ustawieniami.
-        
-    Raises:
-        ConfigError: Jeśli wystąpi błąd podczas wczytywania lub walidacji ustawień.
+    @property
+    def embedding_model_name(self) -> str:
+        """Zwraca nazwę modelu do embeddingów."""
+        return self.EMBEDDING_MODEL
+    
+    @property
+    def llm_model(self) -> Ollama:
+        """Zwraca skonfigurowany model LLM."""
+        return Ollama(
+            base_url=self.OLLAMA_HOST,
+            model=self.LLM_MODEL
+        )
+
+
+class ConfigManager:
     """
-    try:
-        return Settings()
-    except ValidationError as e:
-        raise ConfigError("Błąd walidacji ustawień", e)
-    except Exception as e:
-        raise ConfigError("Nieoczekiwany błąd podczas wczytywania ustawień", e)
+    Klasa zarządzająca konfiguracją aplikacji.
+    
+    Zapewnia interfejs do dostępu do ustawień aplikacji oraz metodę do ich wczytywania.
+    """
+    
+    def __init__(self):
+        """Inicjalizuje menedżer konfiguracji."""
+        self._settings: Optional[Settings] = None
+        self.load_settings()
+    
+    def load_settings(self) -> None:
+        """
+        Wczytuje i waliduje ustawienia aplikacji.
+        
+        Raises:
+            ConfigError: Jeśli wystąpi błąd podczas wczytywania lub walidacji ustawień.
+        """
+        try:
+            self._settings = Settings()
+        except ValidationError as e:
+            raise ConfigError("Błąd walidacji ustawień", e)
+        except Exception as e:
+            raise ConfigError("Nieoczekiwany błąd podczas wczytywania ustawień", e)
+    
+    @property
+    def settings(self) -> Settings:
+        """
+        Zwraca aktualne ustawienia aplikacji.
+        
+        Returns:
+            Settings: Instancja klasy Settings z wczytanymi ustawieniami.
+            
+        Raises:
+            ConfigError: Jeśli ustawienia nie zostały poprawnie wczytane.
+        """
+        if self._settings is None:
+            self.load_settings()
+            if self._settings is None:  # Dodatkowe sprawdzenie po próbie wczytania
+                raise ConfigError("Nie udało się wczytać ustawień")
+        return self._settings
 
 
-# Globalna instancja ustawień, którą można importować z innych modułów
-try:
-    settings = load_settings()
-except ConfigError as e:
-    print(f"Błąd konfiguracji: {e}")
-    raise
+# Globalna instancja menedżera konfiguracji
+config_manager = ConfigManager()
