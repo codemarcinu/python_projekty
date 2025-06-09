@@ -8,11 +8,15 @@ Ten moduł zawiera implementację klasy RAGManager, która odpowiada za:
 """
 
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Union
 
 from langchain_community.embeddings import OllamaEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_core.embeddings import Embeddings
+from langchain_community.document_loaders import PyPDFLoader, TextLoader
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_core.documents import Document
+from langchain_core.retrievers import BaseRetriever
 
 class RAGManager:
     """Klasa zarządzająca systemem RAG (Retrieval-Augmented Generation).
@@ -73,4 +77,91 @@ class RAGManager:
                 self.vector_store = None
         else:
             print("Magazyn wektorowy nie istnieje. Zostanie utworzony przy dodaniu pierwszego dokumentu.")
-            self.vector_store = None 
+            self.vector_store = None
+
+    def add_document(self, file_path: Union[str, Path]) -> None:
+        """Dodaje nowy dokument do bazy wektorowej.
+        
+        Metoda obsługuje cały proces od wczytania pliku po zapisanie go w bazie wektorowej FAISS.
+        Wspiera pliki PDF i TXT. Dokument jest dzielony na mniejsze fragmenty, które są
+        następnie dodawane do bazy wektorowej.
+        
+        Args:
+            file_path: Ścieżka do pliku, który ma zostać dodany do bazy.
+                      Może być stringiem lub obiektem Path.
+            
+        Raises:
+            ValueError: Jeśli typ pliku nie jest wspierany (tylko .pdf i .txt).
+            FileNotFoundError: Jeśli plik nie istnieje.
+            Exception: W przypadku innych błędów podczas przetwarzania.
+        """
+        try:
+            # Konwersja ścieżki na obiekt Path i sprawdzenie istnienia pliku
+            file_path = Path(file_path)
+            if not file_path.exists():
+                raise FileNotFoundError(f"Plik nie istnieje: {file_path}")
+            
+            print(f"Przetwarzanie pliku: {file_path}")
+            
+            # Wybór odpowiedniego loadera na podstawie rozszerzenia
+            if file_path.suffix.lower() == '.pdf':
+                loader = PyPDFLoader(str(file_path))
+            elif file_path.suffix.lower() == '.txt':
+                loader = TextLoader(str(file_path))
+            else:
+                raise ValueError(f"Nieobsługiwany typ pliku: {file_path.suffix}. Wspierane formaty: .pdf, .txt")
+            
+            # Ładowanie dokumentu
+            documents: List[Document] = loader.load()
+            print(f"Zaladowano dokument: {len(documents)} stron/fragmentów")
+            
+            # Konfiguracja i użycie splittera do podziału na mniejsze fragmenty
+            text_splitter = RecursiveCharacterTextSplitter(
+                chunk_size=1000,
+                chunk_overlap=200,
+                length_function=len,
+                is_separator_regex=False
+            )
+            
+            chunks = text_splitter.split_documents(documents)
+            print(f"Podzielono na {len(chunks)} fragmentów")
+            
+            # Dodanie dokumentów do bazy wektorowej
+            if self.vector_store is None:
+                # Tworzenie nowej bazy wektorowej
+                print("Tworzenie nowej bazy wektorowej...")
+                self.vector_store = FAISS.from_documents(
+                    documents=chunks,
+                    embedding=self.embeddings
+                )
+            else:
+                # Dodanie do istniejącej bazy
+                print("Dodawanie do istniejącej bazy wektorowej...")
+                self.vector_store.add_documents(chunks)
+            
+            # Zapisanie zaktualizowanej bazy na dysku
+            if self.vector_store is not None:  # Dodatkowe sprawdzenie dla mypy
+                self.vector_store.save_local(
+                    folder_path=str(self.index_path),
+                    allow_dangerous_deserialization=True
+                )
+                print("Baza wektorowa zapisana pomyślnie.")
+            
+        except (ValueError, FileNotFoundError) as e:
+            # Przekazanie błędów walidacji i braku pliku
+            raise
+        except Exception as e:
+            # Obsługa innych błędów
+            print(f"Wystąpił błąd podczas przetwarzania dokumentu: {e}")
+            raise 
+
+    def get_retriever(self) -> Optional[BaseRetriever]:
+        """Zwraca retriever do wyszukiwania dokumentów w bazie wektorowej.
+        
+        Returns:
+            Optional[BaseRetriever]: Retriever do wyszukiwania dokumentów lub None,
+                                   jeśli baza wektorowa nie istnieje.
+        """
+        if self.vector_store is None:
+            return None
+        return self.vector_store.as_retriever() 

@@ -1,13 +1,16 @@
 """
-Moduł zawierający główny silnik AI odpowiedzialny za zarządzanie logiką agenta AI.
+Moduł zawierający główny silnik AI aplikacji.
 
-Ten moduł implementuje klasę AIEngine, która koordynuje działanie modelu językowego
-z systemem wtyczek, umożliwiając agentowi wykonywanie zadań i odpowiadanie użytkownikowi.
+Ten moduł implementuje klasę AIEngine, która zarządza wszystkimi operacjami
+związanymi ze sztuczną inteligencją, w tym:
+- Integracją z modelami LLM
+- Obsługą konwersacji
+- Systemem RAG (Retrieval-Augmented Generation)
 """
 
 import json
 import inspect
-from typing import List, Dict, Any, Union, AsyncGenerator, cast, Callable
+from typing import List, Dict, Any, Union, AsyncGenerator, cast, Callable, Optional
 from pydantic import ValidationError
 
 from langchain.chains import LLMChain
@@ -15,19 +18,41 @@ from langchain.prompts import PromptTemplate
 from langchain.memory import ConversationBufferMemory
 from langchain.schema import HumanMessage, AIMessage
 from langchain.tools import Tool
+from langchain_core.prompts import PromptTemplate as LangChainPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnablePassthrough
+from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain.chains import create_retrieval_chain
 
 from .llm_manager import LLMManager
 from .module_system import load_modules, get_tool, _tools, get_tool_descriptions
 from .tool_models import WeatherArgs, AddTaskArgs, ListTasksArgs, TaskIdArgs, MathArgs, BaseTool
+from .rag_manager import RAGManager
 
 
 class AIEngine:
-    """
-    Główny silnik AI, działający w oparciu o architekturę "Routera Narzędzi".
-    Wykorzystuje LangChain do zarządzania konwersacją i routingiem narzędzi.
+    """Główny silnik AI aplikacji.
+    
+    Odpowiada za zarządzanie wszystkimi operacjami związanymi ze sztuczną inteligencją,
+    w tym integracją z modelami LLM, obsługą konwersacji i systemem RAG.
+    
+    Attributes:
+        config_manager: Menedżer konfiguracji aplikacji
+        rag_manager: Menedżer systemu RAG
     """
 
-    def __init__(self):
+    def __init__(self, config_manager) -> None:
+        """Inicjalizuje silnik AI.
+        
+        Args:
+            config_manager: Menedżer konfiguracji aplikacji
+        """
+        self.config_manager = config_manager
+        
+        # Inicjalizacja menedżera RAG
+        self.rag_manager = RAGManager(config_manager)
+        self.rag_manager.load_store()
+        
         load_modules("modules")
         self.tools_description = self._get_formatted_tools_description()
         self.tool_arg_models = {
@@ -344,3 +369,51 @@ Narzędzie:"""
             # Dla wersji strumieniowej, używamy odpowiedniej metody z LLM
             async for chunk in self.llm.generate_response_stream([{'role': 'user', 'content': user_prompt}]):
                 yield chunk
+
+    async def get_rag_response_stream(self, query: str) -> AsyncGenerator[str, None]:
+        """Generuje strumień odpowiedzi na podstawie zapytania i kontekstu z bazy wektorowej.
+        
+        Args:
+            query: Zapytanie użytkownika
+            
+        Yields:
+            str: Fragmenty odpowiedzi generowane przez model
+            
+        Raises:
+            ValueError: Jeśli baza wektorowa nie istnieje
+        """
+        # Pobierz retriever
+        retriever = self.rag_manager.get_retriever()
+        if retriever is None:
+            raise ValueError("Baza wektorowa nie istnieje. Najpierw dodaj dokumenty.")
+        
+        # Szablon promptu dla RAG
+        template = """Odpowiedz na pytanie użytkownika na podstawie poniższego kontekstu.
+        Jeśli nie znasz odpowiedzi lub kontekst nie zawiera odpowiednich informacji,
+        powiedz to wprost. Nie wymyślaj informacji.
+
+        Kontekst:
+        {context}
+
+        Pytanie: {input}
+
+        Odpowiedź:"""
+        
+        prompt = LangChainPromptTemplate.from_template(template)
+        
+        # Tworzenie łańcucha RAG
+        document_chain = create_stuff_documents_chain(
+            llm=self.config_manager.llm,
+            prompt=prompt,
+            output_parser=StrOutputParser()
+        )
+        
+        retrieval_chain = create_retrieval_chain(
+            retriever=retriever,
+            combine_docs_chain=document_chain
+        )
+        
+        # Generowanie odpowiedzi
+        async for chunk in retrieval_chain.astream({"input": query}):
+            if "answer" in chunk:
+                yield chunk["answer"]

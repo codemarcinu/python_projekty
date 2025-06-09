@@ -12,8 +12,9 @@ from rich.panel import Panel
 from core.ai_engine import AIEngine
 from core.conversation_handler import ConversationHandler
 from core.database import init_db, DatabaseError
-from core.config_manager import settings, ConfigError
+from core.config_manager import settings, ConfigError, ConfigManager
 from core.exceptions import AIEngineError, ConversationError
+import asyncio
 
 # Inicjalizacja aplikacji Typer
 app = typer.Typer(
@@ -118,6 +119,33 @@ def chat(
                 border_style="red"
             ))
             console.print("[yellow]Możesz kontynuować konwersację...[/yellow]")
+
+
+@app.command("rag")
+async def rag_query(query: str) -> None:
+    """Zadaje pytanie do dokumentów w bazie wektorowej.
+    
+    Args:
+        query: Pytanie do zadania
+    """
+    try:
+        # Inicjalizacja silnika AI
+        config = ConfigManager()
+        engine = AIEngine(config)
+        
+        # Sprawdzenie czy baza wektorowa istnieje
+        if engine.rag_manager.vector_store is None:
+            console.print("[red]Błąd:[/red] Baza wektorowa nie istnieje. Najpierw dodaj dokumenty używając komendy 'add-doc'.")
+            return
+        
+        # Generowanie i wyświetlanie odpowiedzi
+        console.print("\n[bold blue]Odpowiedź:[/bold blue]\n")
+        async for chunk in engine.get_rag_response_stream(query):
+            console.print(chunk, end="")
+        console.print("\n")
+        
+    except Exception as e:
+        console.print(f"[red]Wystąpił błąd:[/red] {str(e)}")
 
 
 if __name__ == "__main__":
