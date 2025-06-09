@@ -7,12 +7,14 @@ from datetime import datetime
 import json
 import re
 import logging
+import os
+from pathlib import Path
 
 from langchain.chains import ConversationalRetrievalChain
 from langchain.memory import ConversationBufferMemory
 from langchain_core.prompts import PromptTemplate
 from langchain_community.vectorstores import FAISS
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.agents import AgentExecutor
 from langchain.agents import create_react_agent
 from langchain.tools import Tool
@@ -36,55 +38,66 @@ class AIEngine:
         self._setup_chains()
         self._setup_tools()
     
-    def _setup_chains(self) -> None:
-        """Set up LangChain chains and prompts."""
-        # Initialize embeddings
-        embeddings = HuggingFaceEmbeddings(
-            model_name="all-MiniLM-L6-v2",
-            model_kwargs={"device": "cuda" if torch.cuda.is_available() else "cpu"},
-        )
-        
-        # Initialize vector store
+    def _ensure_directories(self) -> None:
+        """Ensure required directories exist."""
         try:
-            vector_store = FAISS.load_local(
-                str(self.settings.rag.vector_db_path),
-                embeddings
+            # Create vector DB directory if it doesn't exist
+            vector_db_path = Path(self.settings.rag.vector_db_path)
+            vector_db_path.parent.mkdir(parents=True, exist_ok=True)
+            # Create uploads directory if it doesn't exist
+            uploads_path = Path("uploads")
+            uploads_path.mkdir(exist_ok=True)
+        except Exception as e:
+            logger.error(f"Error creating directories: {e}")
+            raise AIEngineError(f"Failed to create required directories: {e}")
+    
+    def _setup_chains(self) -> None:
+        """Set up RAG chains and vector store."""
+        try:
+            self._ensure_directories()
+            # Initialize embeddings with new import
+            embeddings = HuggingFaceEmbeddings(
+                model_name=self.settings.rag.embedding_model,
+                model_kwargs={'device': 'cuda' if torch.cuda.is_available() else 'cpu'}
             )
-        except RuntimeError:
-            # Jeśli indeks nie istnieje, tworzymy pusty
-            logger.info("Indeks FAISS nie istnieje, tworzę pusty indeks...")
-            # Tworzymy indeks z jednym pustym tekstem, aby uniknąć błędu
-            vector_store = FAISS.from_texts(
-                ["Initial empty document"],
-                embeddings,
-                metadatas=[{"source": "system"}]
-            )
-            vector_store.save_local(str(self.settings.rag.vector_db_path))
-            logger.info("Pusty indeks FAISS utworzony.")
-        
-        # Basic conversation chain
-        self.conversation_chain = ConversationalRetrievalChain.from_llm(
-            llm=self.llm_manager.llm,
-            retriever=vector_store.as_retriever(),
-            memory=ConversationBufferMemory(
+            # Initialize vector store with security flag
+            try:
+                vector_store = FAISS.load_local(
+                    str(self.settings.rag.vector_db_path),
+                    embeddings,
+                    allow_dangerous_deserialization=True
+                )
+                logger.info("Loaded existing FAISS vector store")
+            except Exception as e:
+                logger.warning(f"Could not load existing vector store: {e}")
+                # Create empty vector store if loading fails
+                vector_store = None
+            self.vector_store = vector_store
+            # Set up conversational memory
+            self.memory = ConversationBufferMemory(
                 memory_key="chat_history",
                 return_messages=True
-            ),
-            verbose=True
-        )
-        
-        # Custom prompt template
-        self.prompt_template = PromptTemplate(
-            input_variables=["chat_history", "question"],
-            template="""You are a helpful AI assistant. Use the following conversation history to provide context for your response.
-
-Chat History:
-{chat_history}
-
-Current Question: {question}
-
-Please provide a helpful and accurate response:"""
-        )
+            )
+            # Set up conversational retrieval chain only if vector store exists
+            if self.vector_store:
+                self.rag_chain = ConversationalRetrievalChain.from_llm(
+                    llm=self.llm_manager.llm,
+                    retriever=self.vector_store.as_retriever(),
+                    memory=self.memory,
+                    verbose=True
+                )
+            else:
+                self.rag_chain = None
+                logger.warning("RAG chain not initialized - no vector store available")
+        except Exception as e:
+            logger.error(f"Error setting up chains: {e}")
+            # Fallback setup
+            self.vector_store = None
+            self.rag_chain = None
+            self.memory = ConversationBufferMemory(
+                memory_key="chat_history",
+                return_messages=True
+            )
     
     def _setup_tools(self) -> None:
         """Set up tools for the agent."""
@@ -232,33 +245,22 @@ Thought: {agent_scratchpad}"""
             logger.error(f"Error processing message: {e}")
             return f"Przepraszam, wystąpił błąd: {str(e)}"
     
-    async def process_rag_query(
-        self,
-        query: str,
-        conversation: Optional[Conversation] = None
-    ) -> str:
-        """
-        Process a RAG query using the conversation chain.
-        
-        Args:
-            query: The user's query
-            conversation: Optional conversation for context
-            
-        Returns:
-            Generated response with retrieved context
-        """
-        # Prepare chat history if conversation is provided
-        chat_history = []
-        if conversation:
-            chat_history = conversation.get_context()
-        
-        # Process query through conversation chain
-        response = await self.conversation_chain.arun(
-            question=query,
-            chat_history=chat_history
-        )
-        
-        return response
+    async def process_rag_query(self, query: str, chat_history: str = "") -> str:
+        """Process a query using the RAG chain if available."""
+        if not query:
+            return "No query provided."
+        if self.rag_chain is None:
+            logger.warning("RAG chain is not initialized. Cannot process query.")
+            return "RAG chain is not available. Please add documents or check vector store setup."
+        try:
+            response = await self.rag_chain.arun(
+                question=query,
+                chat_history=chat_history or ""
+            )
+            return str(response) if response is not None else "No response generated"
+        except Exception as e:
+            logger.error(f"Error in RAG query: {e}")
+            return f"Error processing RAG query: {e}"
 
 
 # Create global AI engine instance
