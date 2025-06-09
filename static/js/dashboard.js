@@ -352,4 +352,43 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Update stats every 30 seconds
     setInterval(() => wsManager.updateStats(), 30000);
-}); 
+});
+
+// Generate a simple token for demo purposes
+function generateToken() {
+    return 'demo_token_' + Math.random().toString(36).substr(2);
+}
+
+// Initialize WebSocket connection
+function initWebSocket(conversationId) {
+    const token = generateToken();
+    const ws = new WebSocket(`ws://${window.location.host}/ws/${conversationId}?token=${token}`);
+    
+    ws.onopen = function() {
+        console.log('WebSocket connection established');
+        updateConnectionStatus(true);
+    };
+    
+    ws.onclose = function(e) {
+        console.log('WebSocket connection closed:', e);
+        updateConnectionStatus(false);
+        // Try to reconnect after 5 seconds
+        setTimeout(() => initWebSocket(conversationId), 5000);
+    };
+    
+    ws.onerror = function(error) {
+        console.error('WebSocket error:', error);
+        updateConnectionStatus(false);
+    };
+    
+    ws.onmessage = function(event) {
+        try {
+            const data = JSON.parse(event.data);
+            handleWebSocketMessage(data);
+        } catch (error) {
+            console.error('Error parsing WebSocket message:', error);
+        }
+    };
+    
+    return ws;
+} 

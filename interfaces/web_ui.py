@@ -10,7 +10,7 @@ import logging
 import json
 import psutil
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException, Request
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException, Request, Depends
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -66,6 +66,30 @@ class ChatResponse(BaseModel):
     model: str
     timestamp: datetime
 
+async def get_websocket_token(websocket: WebSocket) -> str:
+    """Validate WebSocket connection and return token."""
+    try:
+        # Accept the connection first
+        await websocket.accept()
+        
+        # Get token from query parameters
+        token = websocket.query_params.get("token")
+        if not token:
+            await websocket.close(code=4001, reason="Missing token")
+            raise HTTPException(status_code=403, detail="Missing token")
+            
+        # Here you would validate the token
+        # For now, we'll just check if it's not empty
+        if not token.strip():
+            await websocket.close(code=4002, reason="Invalid token")
+            raise HTTPException(status_code=403, detail="Invalid token")
+            
+        return token
+    except Exception as e:
+        logger.error(f"WebSocket authentication error: {e}")
+        await websocket.close(code=4003, reason="Authentication failed")
+        raise HTTPException(status_code=403, detail="Authentication failed")
+
 @app.get("/", response_class=HTMLResponse)
 async def get_chat_interface():
     """Zwraca interfejs czatu."""
@@ -80,7 +104,9 @@ async def get_chat_interface():
 async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
     """WebSocket endpoint for real-time chat."""
     try:
-        await websocket.accept()
+        # Authenticate the connection
+        token = await get_websocket_token(websocket)
+        
         logger.info(f"WebSocket connection established for conversation {conversation_id}")
         
         # Initialize AI engine

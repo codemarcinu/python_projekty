@@ -19,12 +19,61 @@ from langchain_community.document_loaders import PyPDFLoader, TextLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
+from sentence_transformers import SentenceTransformer
 
 logger = logging.getLogger(__name__)
 
 class RAGError(Exception):
     """Base exception for RAG-related errors."""
     pass
+
+class CustomEmbeddings(Embeddings):
+    """Custom embeddings class using sentence-transformers."""
+    
+    def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
+        """Initialize the embeddings model.
+        
+        Args:
+            model_name: Name of the sentence-transformers model to use.
+        """
+        try:
+            self.model = SentenceTransformer(model_name)
+            logger.info(f"Initialized sentence-transformers model: {model_name}")
+        except Exception as e:
+            logger.error(f"Error initializing sentence-transformers model: {e}")
+            raise RAGError(f"Failed to initialize embeddings model: {e}")
+    
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        """Embed a list of documents.
+        
+        Args:
+            texts: List of texts to embed.
+            
+        Returns:
+            List of embeddings.
+        """
+        try:
+            embeddings = self.model.encode(texts)
+            return embeddings.tolist()
+        except Exception as e:
+            logger.error(f"Error embedding documents: {e}")
+            raise RAGError(f"Failed to embed documents: {e}")
+    
+    def embed_query(self, text: str) -> List[float]:
+        """Embed a query.
+        
+        Args:
+            text: Text to embed.
+            
+        Returns:
+            Embedding of the text.
+        """
+        try:
+            embedding = self.model.encode(text)
+            return embedding.tolist()
+        except Exception as e:
+            logger.error(f"Error embedding query: {e}")
+            raise RAGError(f"Failed to embed query: {e}")
 
 class RAGManager:
     """Klasa zarządzająca systemem RAG (Retrieval-Augmented Generation).
@@ -51,11 +100,18 @@ class RAGManager:
         try:
             self.config = config
             
-            # Inicjalizacja modelu embeddingów z konfiguracji
-            self.embeddings = OllamaEmbeddings(
-                base_url=config.base_url,
-                model=config.embedding_model
-            )
+            # Inicjalizacja modelu embeddingów
+            try:
+                # Try Ollama embeddings first
+                self.embeddings = OllamaEmbeddings(
+                    base_url=config.base_url,
+                    model=config.embedding_model
+                )
+            except Exception as e:
+                logger.warning(f"Failed to initialize Ollama embeddings: {e}")
+                logger.info("Falling back to sentence-transformers")
+                # Fallback to sentence-transformers
+                self.embeddings = CustomEmbeddings()
             
             # Konfiguracja ścieżek
             self.index_path = config.index_path
