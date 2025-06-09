@@ -8,7 +8,7 @@ Ten moduł zawiera implementację klasy RAGManager, która odpowiada za:
 """
 
 from pathlib import Path
-from typing import Optional, List, Union
+from typing import Optional, List, Union, Dict, Any
 import logging
 
 from langchain_community.embeddings import OllamaEmbeddings
@@ -40,9 +40,11 @@ class RAGManager:
         Args:
             config: Konfiguracja RAG zawierająca ustawienia dla embeddingów i indeksu.
         """
+        self.config = config  # Przechowuj konfigurację jako atrybut klasy
+        
         # Inicjalizacja modelu embeddingów z konfiguracji
         self.embeddings = OllamaEmbeddings(
-            base_url=config.llm.ollama_host,
+            base_url="http://localhost:11434",  # Domyślny adres Ollama
             model=config.embedding_model
         )
         
@@ -99,8 +101,8 @@ class RAGManager:
             documents = loader.load()
             
             text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=1000,
-                chunk_overlap=200
+                chunk_size=self.config.chunk_size,
+                chunk_overlap=self.config.chunk_overlap
             )
             splits = text_splitter.split_documents(documents)
             
@@ -159,79 +161,67 @@ class RAGManager:
         
         return response 
 
-    def list_documents(self) -> list[str]:
-        """Zwraca listę unikalnych nazw dokumentów przechowywanych w bazie wektorowej.
-        
-        Metoda przeszukuje wszystkie fragmenty dokumentów w bazie wektorowej i wyciąga
-        z ich metadanych nazwy plików źródłowych. Zwraca listę unikalnych nazw plików.
+    def list_documents(self) -> List[Dict[str, Any]]:
+        """Zwraca listę dokumentów w bazie.
         
         Returns:
-            list[str]: Lista unikalnych nazw plików przechowywanych w bazie.
-                      Jeśli baza jest pusta lub nie istnieje, zwraca pustą listę.
+            List[Dict[str, Any]]: Lista dokumentów z ich metadanymi.
         """
-        if self.vector_store is None:
+        try:
+            # Pobierz wszystkie dokumenty z bazy używając similarity_search
+            docs = self.vector_store.similarity_search("", k=1000)  # Pobierz maksymalnie 1000 dokumentów
+            return [
+                {
+                    "content": doc.page_content,
+                    "metadata": doc.metadata
+                }
+                for doc in docs
+            ]
+        except Exception as e:
+            logger.error(f"Błąd podczas pobierania listy dokumentów: {e}")
             return []
             
-        # Pobranie wszystkich dokumentów z magazynu
-        all_docs = self.vector_store.docstore._docs
-        
-        # Wyciągnięcie unikalnych nazw plików z metadanych
-        unique_filenames = set()
-        for doc in all_docs.values():
-            if doc.metadata and "source_filename" in doc.metadata:
-                unique_filenames.add(doc.metadata["source_filename"])
-        
-        return sorted(list(unique_filenames))
-
     def delete_document(self, filename_to_delete: str) -> bool:
-        """Usuwa dokument i jego wszystkie fragmenty z bazy wektorowej.
-        
-        Metoda znajduje wszystkie fragmenty dokumentu o podanej nazwie pliku
-        i usuwa je z bazy wektorowej. Następnie usuwa również oryginalny plik
-        z katalogu uploads.
+        """Usuwa dokument z bazy wektorowej.
         
         Args:
-            filename_to_delete (str): Nazwa pliku do usunięcia.
+            filename_to_delete: Nazwa pliku do usunięcia.
             
         Returns:
-            bool: True jeśli usunięto jakiekolwiek fragmenty dokumentu,
-                 False jeśli dokument nie został znaleziony lub baza jest pusta.
-                 
-        Raises:
-            Exception: W przypadku błędów podczas usuwania pliku lub zapisywania bazy.
+            bool: True jeśli dokument został usunięty pomyślnie, False w przeciwnym razie.
         """
-        if self.vector_store is None:
-            return False
+        try:
+            # Pobierz wszystkie dokumenty
+            docs = self.vector_store.similarity_search("", k=1000)
             
-        # Lista ID fragmentów do usunięcia
-        ids_to_delete = []
-        
-        # Znajdowanie wszystkich fragmentów dokumentu
-        for docstore_id in self.vector_store.index_to_docstore_id.values():
-            doc = self.vector_store.docstore._docs.get(docstore_id)
-            if doc and doc.metadata and doc.metadata.get("source_filename") == filename_to_delete:
-                ids_to_delete.append(docstore_id)
-        
-        # Jeśli znaleziono fragmenty do usunięcia
-        if ids_to_delete:
-            # Usunięcie fragmentów z bazy wektorowej
-            self.vector_store.delete(ids_to_delete)
+            # Filtruj dokumenty, które nie są z pliku do usunięcia
+            docs_to_keep = [
+                doc for doc in docs 
+                if doc.metadata.get("source_filename") != filename_to_delete
+            ]
             
-            # Zapisanie zmian na dysku
+            if len(docs_to_keep) == len(docs):
+                logger.warning(f"Dokument {filename_to_delete} nie został znaleziony w bazie")
+                return False
+                
+            # Twórz nowy indeks z pozostałymi dokumentami
+            new_store = FAISS.from_documents(
+                documents=docs_to_keep,
+                embedding=self.embeddings
+            )
+            
+            # Zastąp stary indeks nowym
+            self.vector_store = new_store
+            
+            # Zapisz zmiany
             self.vector_store.save_local(str(self.index_path))
-            
-            # Usunięcie oryginalnego pliku
-            file_path = Path("data/uploads") / filename_to_delete
-            try:
-                if file_path.exists():
-                    file_path.unlink()
-            except Exception as e:
-                print(f"Ostrzeżenie: Nie udało się usunąć pliku {filename_to_delete}: {e}")
-            
+            logger.info(f"Usunięto dokument {filename_to_delete}")
             return True
             
-        return False 
-
+        except Exception as e:
+            logger.error(f"Błąd podczas usuwania dokumentu: {e}")
+            return False
+            
     def init_empty_index(self) -> None:
         """Tworzy pusty indeks FAISS, jeśli nie istnieje."""
         index_file = self.index_path / "index.faiss"
@@ -245,13 +235,18 @@ class RAGManager:
         print(f"Pusty indeks FAISS utworzony w {self.index_path}") 
 
     def get_document_count(self) -> int:
-        """Zwraca liczbę unikalnych dokumentów w bazie wektorowej.
+        """Zwraca liczbę dokumentów w bazie.
         
         Returns:
-            int: Liczba unikalnych dokumentów w bazie.
-                 Jeśli baza jest pusta lub nie istnieje, zwraca 0.
+            int: Liczba dokumentów.
         """
-        return len(self.list_documents()) 
+        try:
+            # Pobierz wszystkie dokumenty z bazy używając similarity_search
+            docs = self.vector_store.similarity_search("", k=1000)
+            return len(docs)
+        except Exception as e:
+            logger.error(f"Błąd podczas pobierania liczby dokumentów: {e}")
+            return 0
 
     def search(self, query: str, k: int = 4) -> List[Document]:
         """Wyszukuje podobne dokumenty.
