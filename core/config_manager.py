@@ -45,13 +45,13 @@ class Settings(BaseSettings):
     app_name: str = Field(default="AI Assistant", description="Application name")
     version: str = Field(default="0.1.0", description="Application version")
     data_dir: Path = Field(default=Path("data"), description="Base directory for data storage")
-    db_path: str = Field(default="data/assistant.db", description="Path to SQLite database")
+    db_path: Path = Field(default=Path("data/assistant.db"), description="Path to SQLite database")
     weather_api_key: str = Field(default="", description="API key for weather service")
     
     # Component settings
-    llm: LLMSettings = Field(default_factory=lambda: LLMSettings())
-    rag: RAGSettings = Field(default_factory=lambda: RAGSettings())
-    web: WebSettings = Field(default_factory=lambda: WebSettings())
+    llm: LLMSettings = Field(default_factory=LLMSettings)
+    rag: RAGSettings = Field(default_factory=RAGSettings)
+    web: WebSettings = Field(default_factory=WebSettings)
     
     # Security
     secret_key: str = Field(default="your-secret-key-here", description="Secret key for security")
@@ -60,7 +60,8 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         env_nested_delimiter="__",
-        case_sensitive=True
+        case_sensitive=True,
+        extra="allow"
     )
 
 
