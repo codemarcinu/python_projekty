@@ -16,7 +16,7 @@ class RAGSettings(BaseSettings):
     embedding_model: str = "all-MiniLM-L6-v2"
     chunk_size: int = 1000
     chunk_overlap: int = 200
-    index_path: Path = Path("data/faiss_index")
+    index_path: Path = Path("data/faiss_index.bin")
     vector_db_path: Path = Path("data/vector_db")
     upload_dir: Path = Path("uploads")
     max_results: int = 5
