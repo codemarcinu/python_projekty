@@ -12,6 +12,7 @@ from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
 import asyncio
 from datetime import datetime
+import logging
 
 # Importujemy nasz gotowy silnik AI i menedżera konwersacji
 from core.ai_engine import AIEngine, get_ai_engine
@@ -54,21 +55,63 @@ async def verify_api_key(api_key: str = Depends(api_key_header)):
 # --- WebSocket Connection ---
 @router.websocket("/ws/{user_id}")
 async def websocket_endpoint(websocket: WebSocket, user_id: str):
-    await websocket.accept()
+    """
+    Endpoint WebSocket do obsługi komunikacji w czasie rzeczywistym.
+    
+    Args:
+        websocket: Połączenie WebSocket
+        user_id: ID użytkownika
+    """
     try:
+        # Akceptuj połączenie
+        await websocket.accept()
+        logging.info(f"WebSocket connection accepted for user {user_id}")
+        
+        # Inicjalizuj konwersację
+        conversation_id = conversation_manager.create_conversation(user_id)
+        logging.info(f"Created conversation {conversation_id} for user {user_id}")
+        
         while True:
-            message = await websocket.receive_text()
             try:
+                # Odbierz wiadomość
+                message = await websocket.receive_text()
+                logging.debug(f"Received message from user {user_id}: {message[:100]}...")
+                
+                # Przetwórz wiadomość
+                if not rag_manager.model or not rag_manager.index:
+                    await asyncio.create_task(rag_manager.initialize())
+                
                 response = await ai_engine.process_message(
                     message=message,
                     model="gemma3:12b",
                     use_rag=True
                 )
+                
+                # Wyślij odpowiedź
                 await websocket.send_text(response)
+                logging.debug(f"Sent response to user {user_id}: {response[:100]}...")
+                
+            except WebSocketDisconnect:
+                logging.info(f"WebSocket disconnected for user {user_id}")
+                break
             except Exception as e:
-                await websocket.send_text(f"Error: {str(e)}")
-    except WebSocketDisconnect:
-        pass
+                error_msg = f"Error processing message: {str(e)}"
+                logging.error(error_msg, exc_info=True)
+                await websocket.send_text(f"Error: {error_msg}")
+                
+    except Exception as e:
+        logging.error(f"WebSocket error for user {user_id}: {str(e)}", exc_info=True)
+        try:
+            await websocket.close(code=1011, reason="Internal server error")
+        except:
+            pass
+    finally:
+        # Wyczyść zasoby konwersacji
+        try:
+            conversation_manager.end_conversation(conversation_id)
+            logging.info(f"Ended conversation {conversation_id} for user {user_id}")
+        except:
+            pass
 
 # --- Chat Interface ---
 @router.get("/chat", response_class=HTMLResponse)

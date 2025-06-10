@@ -148,6 +148,18 @@ class ConversationManager:
         if to_delete:
             logger.info(f"Cleaned up {len(to_delete)} old conversations")
 
+    def end_conversation(self, conversation_id: str) -> None:
+        """
+        Kończy konwersację i zapisuje ją na dysku.
+        
+        Args:
+            conversation_id: ID konwersacji do zakończenia
+        """
+        if conversation_id in self._conversations:
+            conversation = self._conversations[conversation_id]
+            self._save_conversation(conversation)
+            logger.info(f"Ended conversation {conversation_id}")
+
 
 # Create global conversation manager instance
 conversation_manager = ConversationManager()

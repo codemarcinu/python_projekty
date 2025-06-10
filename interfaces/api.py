@@ -14,16 +14,19 @@ from pydantic import BaseModel, Field
 import aiofiles
 import asyncio
 from datetime import datetime, timedelta
+import logging
 
 # Importujemy nasz gotowy silnik AI i menedżera konwersacji
 from core.ai_engine import AIEngine, get_ai_engine
 from core.conversation_handler import get_conversation_manager
 from core.config_manager import get_settings
+from core.rag_manager import RAGManager
 
 # Initialize core components
 ai_engine = get_ai_engine()
 conversation_manager = get_conversation_manager()
 config_manager = get_settings()
+rag_manager = RAGManager(config_manager.rag)
 
 # --- Security Configuration ---
 API_KEY_NAME = "X-API-Key"
@@ -211,6 +214,32 @@ async def health_check():
         "timestamp": datetime.now().isoformat(),
         "llm_status": ai_engine.llm_manager.get_health_status()
     }
+
+@router.get("/stats")
+async def get_stats() -> Dict:
+    """
+    Zwraca statystyki systemu.
+    
+    Returns:
+        Dict: Statystyki systemu
+    """
+    try:
+        # Pobierz statystyki z różnych komponentów
+        agent_status = ai_engine.get_agent_status()
+        documents = rag_manager.list_documents()
+        
+        return {
+            "active_models": 1,  # Na razie tylko jeden model
+            "doc_count": len(documents),
+            "conversations": 0,  # TODO: Dodać licznik konwersacji
+            "agent_status": agent_status
+        }
+    except Exception as e:
+        logging.error(f"Error getting stats: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error getting stats: {str(e)}"
+        )
 
 # --- WebSocket Connection ---
 @router.websocket("/ws/{user_id}")

@@ -41,6 +41,7 @@ class LLMManager:
         self.timeout = settings.llm.timeout
         self.model = settings.llm.model_name
         self.session: Optional[aiohttp.ClientSession] = None
+        self.llm = None
     
     async def initialize_llm(self):
         """Inicjalizuje połączenie z modelem LLM."""
@@ -49,6 +50,22 @@ class LLMManager:
                 base_url=self.base_url,
                 timeout=aiohttp.ClientTimeout(total=self.timeout)
             )
+            
+        # Inicjalizacja modelu
+        try:
+            async with self.session.post(
+                "/api/pull",
+                json={"name": self.model}
+            ) as response:
+                if response.status != 200:
+                    raise Exception(f"Error pulling model: {response.status}")
+                
+                self.llm = self.model
+                logger.info(f"Model {self.model} initialized successfully")
+                
+        except Exception as e:
+            logger.error(f"Error initializing model: {e}")
+            raise
     
     async def cleanup(self):
         """Zamyka połączenie z modelem LLM."""

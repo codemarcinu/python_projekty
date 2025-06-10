@@ -16,7 +16,7 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 from langchain.schema import Document
 from langchain.schema.retriever import BaseRetriever
-from core.config_manager import ConfigManager, get_settings
+from core.config_manager import RAGSettings, get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -75,12 +75,12 @@ class CustomEmbeddings:
 class RAGManager:
     """Menedżer systemu RAG."""
     
-    def __init__(self, config: ConfigManager):
+    def __init__(self, config: RAGSettings):
         """
         Inicjalizuje menedżera RAG.
         
         Args:
-            config: Menedżer konfiguracji
+            config: Ustawienia RAG
         """
         self.config = config
         self.settings = get_settings()
@@ -96,7 +96,10 @@ class RAGManager:
         """Inicjalizuje model embeddingów i indeks FAISS."""
         try:
             # Inicjalizacja modelu embeddingów
-            self.model = SentenceTransformer(self.embedding_model)
+            self.model = SentenceTransformer(
+                self.embedding_model,
+                trust_remote_code=True
+            )
             
             # Inicjalizacja indeksu FAISS
             if self.index_path.exists():
