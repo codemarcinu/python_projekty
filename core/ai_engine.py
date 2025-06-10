@@ -121,11 +121,17 @@ class AIEngine:
             
             # Create modern React agent prompt with improved instructions
             prompt_template = """Jesteś asystentem AI z dostępem do różnych narzędzi.
-ZAWSZE używaj narzędzi, gdy pytanie dotyczy:
-- aktualnej daty, dnia tygodnia, godziny lub czasu (użyj narzędzia 'time')
-- obliczeń matematycznych (użyj narzędzia 'calculator')
-- pogody (użyj narzędzia 'weather')
-- wyszukiwania informacji (użyj narzędzia 'search')
+
+WAŻNE ZASADY:
+1. ZAWSZE używaj narzędzi, gdy pytanie dotyczy:
+   - aktualnej daty, dnia tygodnia, godziny lub czasu (użyj narzędzia 'time')
+   - obliczeń matematycznych (użyj narzędzia 'calculator')
+   - pogody (użyj narzędzia 'weather')
+   - wyszukiwania informacji (użyj narzędzia 'search')
+
+2. NIE odpowiadaj na podstawie swojej wiedzy, jeśli istnieje odpowiednie narzędzie!
+3. NIE zmyślaj dat, czasu ani innych informacji, które mogą być dostarczone przez narzędzia.
+4. Jeśli nie jesteś pewien, czy użyć narzędzia - użyj go!
 
 NARZĘDZIA:
 ---------
