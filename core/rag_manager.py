@@ -92,7 +92,7 @@ class RAGManager:
         self.documents: List[Dict[str, Any]] = []
         self.vector_store = None
     
-    def initialize(self):
+    async def initialize(self):
         """Inicjalizuje model embeddingów i indeks FAISS."""
         try:
             # Inicjalizacja modelu embeddingów
@@ -109,14 +109,14 @@ class RAGManager:
                 self.index = faiss.IndexFlatL2(384)  # 384 to wymiar wektora dla all-MiniLM-L6-v2
             
             # Wczytanie dokumentów
-            self.documents = self._load_documents()
+            self.documents = await self._load_documents()
             
             logger.info("RAG system initialized successfully")
         except Exception as e:
             logger.error(f"Error initializing RAG system: {e}")
             raise
     
-    def _load_documents(self) -> List[Dict[str, Any]]:
+    async def _load_documents(self) -> List[Dict[str, Any]]:
         """
         Wczytuje dokumenty z katalogu uploads.
         
@@ -134,7 +134,7 @@ class RAGManager:
                     })
         return documents
     
-    def add_document(self, file_path: str) -> bool:
+    async def add_document(self, file_path: str) -> bool:
         """
         Dodaje dokument do systemu RAG.
         
@@ -146,7 +146,7 @@ class RAGManager:
         """
         try:
             if not self.model or not self.index:
-                self.initialize()
+                await self.initialize()
             
             if not self.model or not self.index:
                 raise Exception("Failed to initialize RAG system")
@@ -188,7 +188,7 @@ class RAGManager:
         """
         return self.documents
     
-    def search(self, query: str, k: Optional[int] = None) -> List[Document]:
+    async def search(self, query: str, k: Optional[int] = None) -> List[Document]:
         """
         Wyszukuje dokumenty podobne do zapytania.
         
@@ -201,7 +201,7 @@ class RAGManager:
         """
         try:
             if not self.model or not self.index:
-                self.initialize()
+                await self.initialize()
             
             if not self.model or not self.index:
                 raise Exception("Failed to initialize RAG system")
