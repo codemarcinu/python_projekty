@@ -79,7 +79,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
                 
                 # Przetwórz wiadomość
                 if not rag_manager.model or not rag_manager.index:
-                    await asyncio.create_task(rag_manager.initialize())
+                    await rag_manager.initialize()
                 
                 response = await ai_engine.process_message(
                     message=message,
@@ -87,8 +87,11 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
                     use_rag=True
                 )
                 
-                # Wyślij odpowiedź
-                await websocket.send_text(response)
+                # Wyślij odpowiedź jako JSON
+                await websocket.send_json({
+                    "type": "message",
+                    "content": response
+                })
                 logging.debug(f"Sent response to user {user_id}: {response[:100]}...")
                 
             except WebSocketDisconnect:
@@ -108,8 +111,8 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
     finally:
         # Wyczyść zasoby konwersacji
         try:
-            conversation_manager.end_conversation(conversation_id)
-            logging.info(f"Ended conversation {conversation_id} for user {user_id}")
+            conversation_manager.end_conversation(conversation_id.id)
+            logging.info(f"Ended conversation {conversation_id.id} for user {user_id}")
         except:
             pass
 

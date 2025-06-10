@@ -7,6 +7,7 @@ import logging
 from typing import Dict, Any, Optional
 import aiohttp
 import asyncio
+from langchain_community.llms import Ollama
 from core.config_manager import Settings, get_settings
 
 logger = logging.getLogger(__name__)
@@ -41,7 +42,7 @@ class LLMManager:
         self.timeout = settings.llm.timeout
         self.model = settings.llm.model_name
         self.session: Optional[aiohttp.ClientSession] = None
-        self.llm = None
+        self.llm: Optional[Ollama] = None
     
     async def initialize_llm(self):
         """Inicjalizuje połączenie z modelem LLM."""
@@ -60,7 +61,12 @@ class LLMManager:
                 if response.status != 200:
                     raise Exception(f"Error pulling model: {response.status}")
                 
-                self.llm = self.model
+                # Inicjalizacja obiektu Ollama
+                self.llm = Ollama(
+                    base_url=self.base_url,
+                    model=self.model,
+                    timeout=self.timeout
+                )
                 logger.info(f"Model {self.model} initialized successfully")
                 
         except Exception as e:

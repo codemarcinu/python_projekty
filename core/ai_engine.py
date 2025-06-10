@@ -98,9 +98,9 @@ class AIEngine:
             # Define available tools with improved descriptions
             self.tools = [
                 Tool(
-                    name="search",
-                    func=self._search_tool,
-                    description="Wyszukaj informacje w internecie. Input powinien być zapytaniem wyszukiwania."
+                    name="time",
+                    func=self._time_tool,
+                    description="Pobierz aktualną datę i czas. Używaj tego narzędzia gdy pytanie dotyczy aktualnej daty, dnia tygodnia, godziny lub czasu."
                 ),
                 Tool(
                     name="calculator",
@@ -113,15 +113,19 @@ class AIEngine:
                     description="Pobierz aktualną pogodę dla podanej lokalizacji. Input powinien być nazwą miasta."
                 ),
                 Tool(
-                    name="time",
-                    func=self._time_tool,
-                    description="Pobierz aktualną datę i czas. Nie wymaga inputu."
+                    name="search",
+                    func=self._search_tool,
+                    description="Wyszukaj informacje w internecie. Input powinien być zapytaniem wyszukiwania."
                 )
             ]
             
             # Create modern React agent prompt with improved instructions
             prompt_template = """Jesteś asystentem AI z dostępem do różnych narzędzi.
-Używaj tych narzędzi, gdy są odpowiednie do pomocy w odpowiedzi na pytania.
+ZAWSZE używaj narzędzi, gdy pytanie dotyczy:
+- aktualnej daty, dnia tygodnia, godziny lub czasu (użyj narzędzia 'time')
+- obliczeń matematycznych (użyj narzędzia 'calculator')
+- pogody (użyj narzędzia 'weather')
+- wyszukiwania informacji (użyj narzędzia 'search')
 
 NARZĘDZIA:
 ---------
@@ -153,23 +157,28 @@ Thought: {agent_scratchpad}"""
             prompt = PromptTemplate.from_template(prompt_template)
             
             # Create React agent using modern approach
-            self.agent = create_react_agent(
-                llm=self.llm_manager.llm,
-                tools=self.tools,
-                prompt=prompt
-            )
-            
-            # Create agent executor with improved error handling
-            self.agent_executor = AgentExecutor(
-                agent=self.agent,
-                tools=self.tools,
-                verbose=True,
-                handle_parsing_errors=True,
-                max_iterations=3,
-                return_intermediate_steps=True
-            )
-            
-            logger.info("Agent setup completed successfully")
+            if self.llm_manager.llm:
+                self.agent = create_react_agent(
+                    llm=self.llm_manager.llm,
+                    tools=self.tools,
+                    prompt=prompt
+                )
+                
+                # Create agent executor with improved error handling
+                self.agent_executor = AgentExecutor(
+                    agent=self.agent,
+                    tools=self.tools,
+                    verbose=True,
+                    handle_parsing_errors=True,
+                    max_iterations=3,
+                    return_intermediate_steps=True
+                )
+                
+                logger.info("Agent setup completed successfully")
+            else:
+                logger.warning("LLM not initialized, agent setup skipped")
+                self.agent = None
+                self.agent_executor = None
             
         except Exception as e:
             logger.error(f"Error setting up agent: {e}")
@@ -235,32 +244,55 @@ Thought: {agent_scratchpad}"""
         use_rag: bool = True
     ) -> str:
         """
-        Process user message with optional RAG and model selection.
+        Process a user message and generate a response.
         
         Args:
-            message: User message
-            model: Model to use for generation (default: "gemma3:12b")
-            use_rag: Whether to use RAG for context (default: True)
+            message: User's message
+            model: Model to use for generation
+            use_rag: Whether to use RAG for response generation
             
         Returns:
-            AI response
+            str: Generated response
         """
         try:
-            # Try RAG first if enabled and available
+            # Initialize LLM if not already initialized
+            if not self.llm_manager.llm:
+                await self.llm_manager.initialize_llm()
+            
+            # Check if message requires agent tools
+            time_keywords = ["jaki jest dzień", "jaka jest data", "która godzina", "jaki mamy dzień", "jaka jest godzina", "kiedy", "data", "godzina", "czas"]
+            calc_keywords = ["oblicz", "policz", "ile to", "wynik", "dodaj", "odejmij", "pomnóż", "podziel"]
+            weather_keywords = ["pogoda", "temperatura", "deszcz", "słońce", "śnieg"]
+            search_keywords = ["wyszukaj", "znajdź", "szukaj", "informacje o"]
+            
+            all_keywords = time_keywords + calc_keywords + weather_keywords + search_keywords
+            
+            if any(keyword in message.lower() for keyword in all_keywords):
+                try:
+                    # Use agent executor for tool-based responses
+                    result = await self.agent_executor.ainvoke({"input": message})
+                    return result["output"]
+                except Exception as e:
+                    logger.error(f"Agent execution error: {e}")
+                    # Fallback to direct LLM response
+                    return await self._direct_llm_response(message)
+            
+            # Use RAG if enabled and available
             if use_rag and self.rag_chain:
                 try:
-                    response = await self.process_rag_query(message)
-                    if response:
-                        return response
+                    return await self.process_rag_query(message)
                 except Exception as e:
-                    logger.warning(f"RAG processing failed, falling back to direct LLM: {e}")
+                    logger.error(f"RAG processing error: {e}")
+                    # Fallback to direct LLM response
+                    return await self._direct_llm_response(message)
             
-            # Fallback to direct LLM response
+            # Direct LLM response as fallback
             return await self._direct_llm_response(message)
             
         except Exception as e:
-            logger.error(f"Error processing message: {e}")
-            raise AIEngineError(f"Failed to process message: {e}")
+            error_msg = f"Error processing message: {str(e)}"
+            logger.error(error_msg, exc_info=True)
+            raise AIEngineError(error_msg)
     
     async def _direct_llm_response(self, message: str) -> str:
         """Get direct response from LLM without tools."""

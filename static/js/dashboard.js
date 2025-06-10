@@ -35,10 +35,20 @@ class WebSocketManager {
 
             this.ws.onmessage = (event) => {
                 try {
-                    const data = JSON.parse(event.data);
+                    // Try to parse as JSON first
+                    let data;
+                    try {
+                        data = JSON.parse(event.data);
+                    } catch {
+                        // If not JSON, treat as plain text message
+                        data = {
+                            type: 'message',
+                            content: event.data
+                        };
+                    }
                     this.handleMessage(data);
                 } catch (error) {
-                    console.error('Error parsing message:', error);
+                    console.error('Error handling message:', error);
                     this.showError('Błąd przetwarzania wiadomości');
                 }
             };
