@@ -7,24 +7,39 @@ import logging
 from typing import Dict, Any, Optional
 import aiohttp
 import asyncio
-from core.config_manager import ConfigManager
+from core.config_manager import Settings, get_settings
 
 logger = logging.getLogger(__name__)
+
+# Singleton instance
+_llm_manager: Optional['LLMManager'] = None
+
+def get_llm_manager() -> 'LLMManager':
+    """
+    Zwraca instancję menedżera LLM (singleton).
+    
+    Returns:
+        LLMManager: Instancja menedżera LLM
+    """
+    global _llm_manager
+    if _llm_manager is None:
+        _llm_manager = LLMManager(get_settings())
+    return _llm_manager
 
 class LLMManager:
     """Menedżer modeli LLM."""
     
-    def __init__(self, config: ConfigManager):
+    def __init__(self, settings: Settings):
         """
         Inicjalizuje menedżera LLM.
         
         Args:
-            config: Menedżer konfiguracji
+            settings: Ustawienia aplikacji
         """
-        self.config = config
-        self.base_url = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-        self.timeout = int(os.getenv("OLLAMA_TIMEOUT", "30"))
-        self.model = os.getenv("PRIMARY_MODEL", "gemma3:12b")
+        self.settings = settings
+        self.base_url = settings.llm.ollama_host
+        self.timeout = settings.llm.timeout
+        self.model = settings.llm.model_name
         self.session: Optional[aiohttp.ClientSession] = None
     
     async def initialize_llm(self):

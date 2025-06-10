@@ -75,7 +75,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
 async def chat_interface():
     """Load the chat interface."""
     try:
-        with open("static/chat.html", "r") as f:
+        with open("static/index.html", "r") as f:
             return f.read()
     except Exception as e:
         raise HTTPException(

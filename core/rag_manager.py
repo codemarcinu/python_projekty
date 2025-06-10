@@ -14,7 +14,9 @@ from pathlib import Path
 import faiss
 import numpy as np
 from sentence_transformers import SentenceTransformer
-from core.config_manager import ConfigManager
+from langchain.schema import Document
+from langchain.schema.retriever import BaseRetriever
+from core.config_manager import ConfigManager, get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -81,14 +83,16 @@ class RAGManager:
             config: Menedżer konfiguracji
         """
         self.config = config
-        self.embedding_model = os.getenv("RAG_EMBEDDING_MODEL", "all-MiniLM-L6-v2")
-        self.index_path = Path(os.getenv("FAISS_INDEX_PATH", "data/faiss_index"))
-        self.upload_dir = Path(os.getenv("UPLOAD_DIR", "uploads"))
+        self.settings = get_settings()
+        self.embedding_model = self.settings.rag.embedding_model
+        self.index_path = self.settings.rag.index_path
+        self.upload_dir = self.settings.rag.upload_dir
         self.model: Optional[SentenceTransformer] = None
         self.index: Optional[faiss.Index] = None
         self.documents: List[Dict[str, Any]] = []
+        self.vector_store = None
     
-    async def initialize(self):
+    def initialize(self):
         """Inicjalizuje model embeddingów i indeks FAISS."""
         try:
             # Inicjalizacja modelu embeddingów
@@ -127,7 +131,7 @@ class RAGManager:
                     })
         return documents
     
-    async def add_document(self, file_path: str) -> bool:
+    def add_document(self, file_path: str) -> bool:
         """
         Dodaje dokument do systemu RAG.
         
@@ -139,7 +143,7 @@ class RAGManager:
         """
         try:
             if not self.model or not self.index:
-                await self.initialize()
+                self.initialize()
             
             if not self.model or not self.index:
                 raise Exception("Failed to initialize RAG system")
@@ -152,13 +156,14 @@ class RAGManager:
             embedding = self.model.encode([content])[0]
             
             # Dodanie do indeksu
-            self.index.add(np.array([embedding], dtype=np.float32))
+            self.index.add(np.array([embedding], dtype=np.float32).reshape(1, -1))
             
             # Dodanie do listy dokumentów
             self.documents.append({
                 "id": file_path,
                 "name": Path(file_path).name,
-                "path": file_path
+                "path": file_path,
+                "content": content
             })
             
             # Zapisanie indeksu
@@ -180,30 +185,32 @@ class RAGManager:
         """
         return self.documents
     
-    async def query(self, query: str, k: int = 3) -> List[Dict[str, Any]]:
+    def search(self, query: str, k: Optional[int] = None) -> List[Document]:
         """
         Wyszukuje dokumenty podobne do zapytania.
         
         Args:
             query: Zapytanie
-            k: Liczba wyników
+            k: Liczba wyników (opcjonalnie)
             
         Returns:
-            List[Dict[str, Any]]: Lista podobnych dokumentów
+            List[Document]: Lista podobnych dokumentów
         """
         try:
             if not self.model or not self.index:
-                await self.initialize()
+                self.initialize()
             
             if not self.model or not self.index:
                 raise Exception("Failed to initialize RAG system")
+            
+            k = k or self.settings.rag.max_results
             
             # Generowanie embeddingu zapytania
             query_embedding = self.model.encode([query])[0]
             
             # Wyszukiwanie podobnych dokumentów
             distances, indices = self.index.search(
-                np.array([query_embedding], dtype=np.float32),
+                np.array([query_embedding], dtype=np.float32).reshape(1, -1),
                 k
             )
             
@@ -212,156 +219,100 @@ class RAGManager:
             for i, idx in enumerate(indices[0]):
                 if idx < len(self.documents):
                     doc = self.documents[idx]
-                    results.append({
-                        "document": doc,
-                        "score": float(distances[0][i])
-                    })
+                    results.append(Document(
+                        page_content=doc["content"],
+                        metadata={
+                            "source": doc["path"],
+                            "score": float(distances[0][i])
+                        }
+                    ))
             
             return results
             
         except Exception as e:
-            logger.error(f"Error querying RAG system: {e}")
+            logger.error(f"Error searching RAG system: {e}")
             return []
     
-    async def cleanup(self):
-        """Zamyka połączenia i zwalnia zasoby."""
-        if self.index:
-            faiss.write_index(self.index, str(self.index_path))
-        self.model = None
-        self.index = None
-
     def get_retriever(self) -> Optional[BaseRetriever]:
         """Zwraca retriever do wyszukiwania dokumentów w bazie wektorowej."""
         if self.vector_store is None:
             return None
         return self.vector_store.as_retriever(
-            search_kwargs={"k": self.config.max_results}
+            search_kwargs={"k": self.settings.rag.max_results}
         )
-
-    async def query(self, query: str) -> str:
-        """Wyszukuje odpowiedź na pytanie w bazie wektorowej."""
-        if self.vector_store is None:
-            raise RAGError("Vector store not initialized. Add documents first.")
+    
+    def cleanup(self):
+        """Zamyka połączenia i zwalnia zasoby."""
+        if self.index:
+            faiss.write_index(self.index, str(self.index_path))
+        self.model = None
+        self.index = None
+    
+    def delete_document(self, filename_to_delete: str) -> bool:
+        """
+        Usuwa dokument z systemu RAG.
         
+        Args:
+            filename_to_delete: Nazwa pliku do usunięcia
+            
+        Returns:
+            bool: True jeśli dokument został usunięty pomyślnie
+        """
         try:
-            # Wyszukanie podobnych dokumentów
-            docs = self.vector_store.similarity_search(
-                query, 
-                k=self.config.max_results
-            )
+            if not self.model or not self.index:
+                self.initialize()
             
-            # Przygotowanie kontekstu z dokumentów
-            context = "\n".join(doc.page_content for doc in docs)
+            if not self.model or not self.index:
+                raise Exception("Failed to initialize RAG system")
             
-            # Przygotowanie promptu dla modelu
-            prompt = f"""Odpowiedz na pytanie na podstawie poniższego kontekstu.
-            Jeśli nie możesz znaleźć odpowiedzi w kontekście, powiedz o tym.
+            # Znajdź dokument do usunięcia
+            doc_to_delete = None
+            doc_index = -1
+            for i, doc in enumerate(self.documents):
+                if doc["name"] == filename_to_delete:
+                    doc_to_delete = doc
+                    doc_index = i
+                    break
             
-            Kontekst:
-            {context}
-            
-            Pytanie: {query}
-            
-            Odpowiedź:"""
-            
-            # Użycie modelu do wygenerowania odpowiedzi
-            response = await self.config.llm_model.generate(prompt)
-            return response
-            
-        except Exception as e:
-            logger.error(f"Error processing query: {e}")
-            raise RAGError(f"Failed to process query: {e}")
-
-    def list_documents(self) -> List[Dict[str, Any]]:
-        """Zwraca listę dokumentów w bazie."""
-        try:
-            if self.vector_store is None:
-                return []
-                
-            docs = self.vector_store.similarity_search("", k=1000)
-            return [
-                {
-                    "content": doc.page_content,
-                    "metadata": doc.metadata
-                }
-                for doc in docs
-            ]
-        except Exception as e:
-            logger.error(f"Error listing documents: {e}")
-            return []
-            
-    async def delete_document(self, filename_to_delete: str) -> bool:
-        """Usuwa dokument z bazy wektorowej."""
-        try:
-            if self.vector_store is None:
+            if doc_to_delete is None:
+                logger.warning(f"Document {filename_to_delete} not found")
                 return False
-                
-            # Pobierz wszystkie dokumenty
-            docs = self.vector_store.similarity_search("", k=1000)
             
-            # Filtruj dokumenty
-            docs_to_keep = [
-                doc for doc in docs 
-                if doc.metadata.get("source_filename") != filename_to_delete
-            ]
+            # Usuń dokument z listy
+            self.documents.pop(doc_index)
             
-            if len(docs_to_keep) == len(docs):
-                logger.warning(f"Document {filename_to_delete} not found in database")
-                return False
-                
-            # Twórz nowy indeks
-            new_store = FAISS.from_documents(
-                documents=docs_to_keep,
-                embedding=self.embeddings
-            )
+            # Zaktualizuj indeks FAISS
+            self.index = faiss.IndexFlatL2(384)  # Reset index
+            for doc in self.documents:
+                embedding = self.model.encode([doc["content"]])[0]
+                self.index.add(np.array([embedding], dtype=np.float32).reshape(1, -1))
             
-            # Zastąp stary indeks
-            self.vector_store = new_store
-            self.vector_store.save_local(str(self.index_path))
+            # Zapisanie indeksu
+            faiss.write_index(self.index, str(self.index_path))
             
-            logger.info(f"Successfully deleted document: {filename_to_delete}")
+            logger.info(f"Document {filename_to_delete} deleted successfully")
             return True
             
         except Exception as e:
-            logger.error(f"Error deleting document: {e}")
+            logger.error(f"Error deleting document {filename_to_delete}: {e}")
             return False
-            
+    
     def init_empty_index(self) -> None:
-        """Tworzy pusty indeks FAISS."""
+        """Inicjalizuje pusty indeks FAISS."""
         try:
-            if self.index_path.exists() and any(self.index_path.iterdir()):
-                logger.info("FAISS index already exists")
-                return
-            logger.info("Creating empty FAISS index...")
-            # Dodaj przykładowy tekst zamiast pustej listy
-            self.vector_store = FAISS.from_texts(["Witaj w bazie wiedzy!"], self.embeddings)
-            self.vector_store.save_local(str(self.index_path))
-            logger.info(f"Empty FAISS index created at {self.index_path}")
+            self.index = faiss.IndexFlatL2(384)
+            self.index_path.parent.mkdir(parents=True, exist_ok=True)
+            faiss.write_index(self.index, str(self.index_path))
+            logger.info("Empty FAISS index initialized")
         except Exception as e:
             logger.error(f"Error initializing empty index: {e}")
-            raise RAGError(f"Failed to initialize empty index: {e}")
-
+            raise
+    
     def get_document_count(self) -> int:
-        """Zwraca liczbę dokumentów w bazie."""
-        try:
-            if self.vector_store is None:
-                return 0
-                
-            docs = self.vector_store.similarity_search("", k=1000)
-            return len(docs)
-        except Exception as e:
-            logger.error(f"Error getting document count: {e}")
-            return 0
-
-    async def search(self, query: str, k: Optional[int] = None) -> List[Document]:
-        """Wyszukuje podobne dokumenty."""
-        try:
-            if self.vector_store is None:
-                return []
-                
-            k = k or self.config.max_results
-            return self.vector_store.similarity_search(query, k=k)
-            
-        except Exception as e:
-            logger.error(f"Error searching documents: {e}")
-            return [] 
+        """
+        Zwraca liczbę dokumentów w systemie RAG.
+        
+        Returns:
+            int: Liczba dokumentów
+        """
+        return len(self.documents) 

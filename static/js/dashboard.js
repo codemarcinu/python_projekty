@@ -1,177 +1,4 @@
 // WebSocket Connection
-const ws = new WebSocket(`ws://${window.location.host}/ws`);
-
-ws.onopen = () => {
-    console.log('WebSocket Connected');
-    updateStats();
-};
-
-ws.onmessage = (event) => {
-    const data = JSON.parse(event.data);
-    handleWebSocketMessage(data);
-};
-
-ws.onclose = () => {
-    console.log('WebSocket Disconnected');
-    setTimeout(() => {
-        window.location.reload();
-    }, 5000);
-};
-
-// File Upload Handling
-const dropZone = document.getElementById('dropZone');
-const fileList = document.getElementById('fileList');
-
-dropZone.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    dropZone.classList.add('dragover');
-});
-
-dropZone.addEventListener('dragleave', () => {
-    dropZone.classList.remove('dragover');
-});
-
-dropZone.addEventListener('drop', handleFileDrop);
-dropZone.addEventListener('click', triggerFileInput);
-
-function handleFileDrop(e) {
-    e.preventDefault();
-    dropZone.classList.remove('dragover');
-    const files = e.dataTransfer.files;
-    handleFiles(files);
-}
-
-function triggerFileInput() {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.multiple = true;
-    input.accept = '.pdf,.txt,.doc,.docx';
-    input.onchange = (e) => handleFiles(e.target.files);
-    input.click();
-}
-
-function handleFiles(files) {
-    Array.from(files).forEach(file => {
-        if (file.size > 50 * 1024 * 1024) { // 50MB limit
-            showNotification('Plik jest za duży. Maksymalny rozmiar to 50MB.', 'error');
-            return;
-        }
-
-        const formData = new FormData();
-        formData.append('file', file);
-
-        fetch('/api/upload', {
-            method: 'POST',
-            body: formData
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                addFileToList(file.name, data.file_id);
-                showNotification('Plik został przesłany pomyślnie', 'success');
-            } else {
-                showNotification('Błąd podczas przesyłania pliku', 'error');
-            }
-        })
-        .catch(error => {
-            console.error('Upload error:', error);
-            showNotification('Błąd podczas przesyłania pliku', 'error');
-        });
-    });
-}
-
-function addFileToList(filename, fileId) {
-    const fileItem = document.createElement('div');
-    fileItem.className = 'file-item';
-    fileItem.innerHTML = `
-        <i class="icon icon-file"></i>
-        <span>${filename}</span>
-        <button onclick="deleteFile('${fileId}')" class="delete-btn">
-            <i class="icon icon-trash"></i>
-        </button>
-    `;
-    fileList.appendChild(fileItem);
-}
-
-// Chat Functions
-function sendMessage() {
-    const messageInput = document.getElementById('messageInput');
-    const message = messageInput.value.trim();
-    const model = document.getElementById('modelSelect').value;
-
-    if (!message) return;
-
-    // Add user message to chat
-    addMessageToChat('user', message);
-    messageInput.value = '';
-
-    // Send to WebSocket
-    ws.send(JSON.stringify({
-        type: 'message',
-        content: message,
-        model: model,
-        use_rag: true
-    }));
-}
-
-function addMessageToChat(role, content) {
-    const chatHistory = document.getElementById('chatHistory');
-    const messageDiv = document.createElement('div');
-    messageDiv.className = `message ${role}-message`;
-    messageDiv.innerHTML = `
-        <div class="message-content">
-            <div class="message-role">${role === 'user' ? 'Ty' : 'AI'}</div>
-            <div class="message-text">${content}</div>
-        </div>
-    `;
-    chatHistory.appendChild(messageDiv);
-    chatHistory.scrollTop = chatHistory.scrollHeight;
-}
-
-// Stats Update
-function updateStats() {
-    fetch('/api/stats')
-        .then(response => response.json())
-        .then(data => {
-            document.querySelector('.model-status').textContent = 
-                `${data.active_model} ● ${data.status}`;
-            document.querySelector('.doc-count').textContent = data.doc_count;
-            document.querySelector('.memory-usage').textContent = data.memory_usage;
-        })
-        .catch(error => console.error('Stats update error:', error));
-}
-
-// WebSocket Message Handler
-function handleWebSocketMessage(data) {
-    switch (data.type) {
-        case 'message':
-            addMessageToChat('ai', data.content);
-            break;
-        case 'stats':
-            updateStats();
-            break;
-        case 'error':
-            showNotification(data.message, 'error');
-            break;
-    }
-}
-
-// Utility Functions
-function showNotification(message, type = 'info') {
-    const notification = document.createElement('div');
-    notification.className = `notification ${type}`;
-    notification.textContent = message;
-    document.body.appendChild(notification);
-
-    setTimeout(() => {
-        notification.remove();
-    }, 3000);
-}
-
-// Initialize
-setInterval(updateStats, 30000); // Update stats every 30 seconds
-updateStats();
-
 class WebSocketManager {
     constructor() {
         this.conversationId = this.generateConversationId();
@@ -193,7 +20,7 @@ class WebSocketManager {
 
     connect() {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}/ws/${this.conversationId}`;
+        const wsUrl = `${protocol}//${window.location.host}/web/ws/${this.conversationId}`;
         
         try {
             this.ws = new WebSocket(wsUrl);
@@ -249,182 +76,212 @@ class WebSocketManager {
             this.showNotification(`Próba ponownego połączenia (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`, 'info');
             setTimeout(() => this.connect(), delay);
         } else {
-            console.error('Max reconnection attempts reached');
             this.showError('Nie można połączyć się z serwerem. Odśwież stronę.');
         }
     }
-    
+
     sendMessage(message) {
         if (!this.isConnected) {
             this.showError('Brak połączenia z serwerem');
-            return false;
+            return;
         }
-        
+
         try {
-            const data = {
+            this.ws.send(JSON.stringify({
                 type: 'message',
                 content: message,
-                timestamp: new Date().toISOString()
-            };
-            
-            this.ws.send(JSON.stringify(data));
-            return true;
+                model: 'gemma3:12b',
+                use_rag: true
+            }));
         } catch (error) {
             console.error('Error sending message:', error);
             this.showError('Błąd wysyłania wiadomości');
-            return false;
         }
     }
-    
+
     handleMessage(data) {
-        if (data.type === 'error') {
-            this.showError(data.content);
-        } else if (data.type === 'chat') {
-            this.displayMessage('assistant', data.content);
-        } else if (data.type === 'stats') {
-            this.updateStatsDisplay(data.data);
+        switch (data.type) {
+            case 'message':
+                this.displayMessage('ai', data.content);
+                break;
+            case 'stats':
+                this.updateStatsDisplay(data);
+                break;
+            case 'error':
+                this.showError(data.message);
+                break;
+            default:
+                console.warn('Unknown message type:', data.type);
         }
     }
-    
+
     displayMessage(sender, message) {
         const chatHistory = document.getElementById('chatHistory');
-        if (!chatHistory) return;
-        
         const messageDiv = document.createElement('div');
         messageDiv.className = `message ${sender}-message`;
         messageDiv.innerHTML = `
             <div class="message-content">
                 <div class="message-role">${sender === 'user' ? 'Ty' : 'AI'}</div>
                 <div class="message-text">${message}</div>
-                <div class="message-time">${new Date().toLocaleTimeString()}</div>
             </div>
         `;
-        
         chatHistory.appendChild(messageDiv);
         chatHistory.scrollTop = chatHistory.scrollHeight;
     }
-    
+
     updateConnectionStatus(connected) {
-        const status = document.getElementById('connectionStatus');
-        if (status) {
-            status.textContent = connected ? 'Połączony' : 'Rozłączony';
-            status.className = connected ? 'status-connected' : 'status-disconnected';
-        }
+        const statusElement = document.getElementById('connectionStatus');
+        statusElement.textContent = connected ? 'Połączony' : 'Rozłączony';
+        statusElement.className = connected ? 'status-connected' : 'status-disconnected';
     }
-    
+
     showNotification(message, type = 'info') {
         const notification = document.createElement('div');
         notification.className = `notification ${type}`;
         notification.textContent = message;
         document.body.appendChild(notification);
-        
+
         setTimeout(() => {
             notification.remove();
-        }, 5000);
+        }, 3000);
     }
-    
+
     showError(message) {
         this.showNotification(message, 'error');
     }
-    
+
     updateStats() {
         fetch('/api/stats')
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error('Network response was not ok');
-                }
-                return response.json();
-            })
+            .then(response => response.json())
             .then(data => {
                 this.updateStatsDisplay(data);
             })
             .catch(error => {
-                console.error('Error fetching stats:', error);
-                this.showError('Błąd pobierania statystyk');
+                console.error('Stats update error:', error);
+                this.showError('Błąd aktualizacji statystyk');
             });
     }
-    
+
     updateStatsDisplay(data) {
-        const modelInfo = document.getElementById('modelInfo');
-        const activeModels = document.getElementById('activeModels');
-        const docCount = document.getElementById('docCount');
-        const conversations = document.getElementById('conversations');
-        
-        if (modelInfo) modelInfo.textContent = data.active_model || 'Gemma3:12B';
-        if (activeModels) activeModels.textContent = data.active_models || '2';
-        if (docCount) docCount.textContent = data.doc_count || '0';
-        if (conversations) conversations.textContent = data.conversations || '1';
+        document.getElementById('activeModels').textContent = data.active_models || 0;
+        document.getElementById('docCount').textContent = data.doc_count || 0;
+        document.getElementById('conversations').textContent = data.conversations || 0;
     }
-}
-
-// Initialize WebSocket manager
-let wsManager;
-
-document.addEventListener('DOMContentLoaded', function() {
-    wsManager = new WebSocketManager();
-    
-    // Event listeners
-    const sendButton = document.getElementById('sendMessage');
-    const messageInput = document.getElementById('messageInput');
-    
-    if (sendButton && messageInput) {
-        sendButton.addEventListener('click', () => {
-            const message = messageInput.value.trim();
-            if (message) {
-                wsManager.displayMessage('user', message);
-                if (wsManager.sendMessage(message)) {
-                    messageInput.value = '';
-                }
-            }
-        });
-        
-        messageInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                sendButton.click();
-            }
-        });
-    }
-    
-    // Update stats every 30 seconds
-    setInterval(() => wsManager.updateStats(), 30000);
-});
-
-// Generate a simple token for demo purposes
-function generateToken() {
-    return 'demo_token_' + Math.random().toString(36).substr(2);
 }
 
 // Initialize WebSocket connection
-function initWebSocket(conversationId) {
-    const token = generateToken();
-    const ws = new WebSocket(`ws://${window.location.host}/ws/${conversationId}?token=${token}`);
-    
-    ws.onopen = function() {
-        console.log('WebSocket connection established');
-        updateConnectionStatus(true);
-    };
-    
-    ws.onclose = function(e) {
-        console.log('WebSocket connection closed:', e);
-        updateConnectionStatus(false);
-        // Try to reconnect after 5 seconds
-        setTimeout(() => initWebSocket(conversationId), 5000);
-    };
-    
-    ws.onerror = function(error) {
-        console.error('WebSocket error:', error);
-        updateConnectionStatus(false);
-    };
-    
-    ws.onmessage = function(event) {
-        try {
-            const data = JSON.parse(event.data);
-            handleWebSocketMessage(data);
-        } catch (error) {
-            console.error('Error parsing WebSocket message:', error);
+const wsManager = new WebSocketManager();
+
+// Chat Functions
+function sendMessage() {
+    const messageInput = document.getElementById('messageInput');
+    const message = messageInput.value.trim();
+
+    if (!message) return;
+
+    // Add user message to chat
+    wsManager.displayMessage('user', message);
+    messageInput.value = '';
+
+    // Send to WebSocket
+    wsManager.sendMessage(message);
+}
+
+// File Upload Handling
+const dropZone = document.getElementById('dropZone');
+const fileList = document.getElementById('fileList');
+
+if (dropZone) {
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('dragover');
+    });
+
+    dropZone.addEventListener('dragleave', () => {
+        dropZone.classList.remove('dragover');
+    });
+
+    dropZone.addEventListener('drop', handleFileDrop);
+    dropZone.addEventListener('click', triggerFileInput);
+}
+
+function handleFileDrop(e) {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    const files = e.dataTransfer.files;
+    handleFiles(files);
+}
+
+function triggerFileInput() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    input.accept = '.pdf,.txt,.doc,.docx';
+    input.onchange = (e) => handleFiles(e.target.files);
+    input.click();
+}
+
+function handleFiles(files) {
+    Array.from(files).forEach(file => {
+        if (file.size > 50 * 1024 * 1024) { // 50MB limit
+            wsManager.showError('Plik jest za duży. Maksymalny rozmiar to 50MB.');
+            return;
         }
-    };
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        fetch('/api/upload', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                addFileToList(file.name);
+                wsManager.showNotification('Plik został przesłany pomyślnie', 'success');
+            } else {
+                wsManager.showError('Błąd podczas przesyłania pliku');
+            }
+        })
+        .catch(error => {
+            console.error('Upload error:', error);
+            wsManager.showError('Błąd podczas przesyłania pliku');
+        });
+    });
+}
+
+function addFileToList(filename) {
+    if (!fileList) return;
     
-    return ws;
-} 
+    const fileItem = document.createElement('div');
+    fileItem.className = 'file-item';
+    fileItem.innerHTML = `
+        <i class="icon icon-file"></i>
+        <span>${filename}</span>
+        <button onclick="deleteFile('${filename}')" class="delete-btn">
+            <i class="icon icon-trash"></i>
+        </button>
+    `;
+    fileList.appendChild(fileItem);
+}
+
+// Initialize
+document.addEventListener('DOMContentLoaded', () => {
+    const messageInput = document.getElementById('messageInput');
+    const sendButton = document.getElementById('sendMessage');
+
+    if (messageInput && sendButton) {
+        messageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+
+        sendButton.addEventListener('click', sendMessage);
+    }
+
+    // Update stats every 30 seconds
+    setInterval(() => wsManager.updateStats(), 30000);
+    wsManager.updateStats();
+}); 
