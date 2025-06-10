@@ -79,6 +79,15 @@ def get_tool_descriptions() -> Dict[str, str]:
             descriptions[name] = tool.__doc__.strip() if tool.__doc__ else "No description available."
     return descriptions
 
+def get_registered_tools() -> Dict[str, Union[Callable, BaseTool]]:
+    """
+    Zwraca słownik wszystkich zarejestrowanych narzędzi.
+    
+    Returns:
+        Dict[str, Union[Callable, BaseTool]]: Słownik {nazwa_narzędzia: narzędzie}
+    """
+    return _tools.copy()
+
 def load_modules(module_dir: str) -> None:
     """
     Dynamicznie ładuje wszystkie moduły .py z podanego katalogu.

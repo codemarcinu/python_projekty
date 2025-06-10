@@ -2,7 +2,7 @@
 Main AI engine that orchestrates all components of the AI Assistant.
 Handles the core logic for processing user inputs and generating responses.
 """
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, Callable, Protocol, runtime_checkable
 from datetime import datetime
 import json
 import re
@@ -26,9 +26,14 @@ from .config_manager import get_settings
 from .conversation_handler import Conversation
 from .llm_manager import get_llm_manager
 from .exceptions import AIEngineError
+from .module_system import get_registered_tools, load_modules
+from .tool_models import BaseTool
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+# Type alias dla funkcji narzędzi
+ToolFunc = Callable[..., str]
 
 class AIEngine:
     """Main AI engine orchestrating all components."""
@@ -37,6 +42,15 @@ class AIEngine:
         """Initialize the AI engine with required components."""
         self.settings = get_settings()
         self.llm_manager = get_llm_manager()
+        
+        # Load all modules from the modules directory
+        try:
+            modules_dir = os.path.join(os.path.dirname(__file__), '..', 'modules')
+            load_modules(modules_dir)
+            logger.info(f"Załadowano moduły z katalogu: {modules_dir}")
+        except Exception as e:
+            logger.error(f"Błąd podczas ładowania modułów: {e}", exc_info=True)
+        
         self._setup_chains()
         self._setup_tools()
     
@@ -93,45 +107,51 @@ class AIEngine:
             self.rag_chain = None
     
     def _setup_tools(self) -> None:
-        """Set up tools for the agent."""
+        """DYNAMICZNIE ładuje narzędzia z systemu modułów i konfiguruje agenta."""
         try:
-            # Define available tools with improved descriptions
-            self.tools = [
-                Tool(
-                    name="time",
-                    func=self._time_tool,
-                    description="Pobierz aktualną datę i czas. Używaj tego narzędzia gdy pytanie dotyczy aktualnej daty, dnia tygodnia, godziny lub czasu."
-                ),
-                Tool(
-                    name="calculator",
-                    func=self._calculator_tool,
-                    description="Wykonaj obliczenia matematyczne. Input powinien być wyrażeniem matematycznym (np. '2+2')."
-                ),
-                Tool(
-                    name="weather",
-                    func=self._weather_tool,
-                    description="Pobierz aktualną pogodę dla podanej lokalizacji. Input powinien być nazwą miasta."
-                ),
-                Tool(
-                    name="search",
-                    func=self._search_tool,
-                    description="Wyszukaj informacje w internecie. Input powinien być zapytaniem wyszukiwania."
-                )
-            ]
+            # Pobierz wszystkie funkcje zarejestrowane dekoratorem @tool
+            registered_tools = get_registered_tools()
             
-            # Create modern React agent prompt with improved instructions
+            self.tools = []
+            for name, tool in registered_tools.items():
+                # Użyj docstring funkcji jako opisu dla narzędzia
+                description = tool.__doc__ or f"Narzędzie o nazwie {name}"
+                
+                # Obsługa różnych typów narzędzi
+                if hasattr(tool, 'execute') and callable(getattr(tool, 'execute')):
+                    # Dla obiektów z metodą execute (BaseTool)
+                    execute_func: ToolFunc = tool.execute
+                    tool_instance = Tool(
+                        name=name,
+                        func=execute_func,  # Używamy metody execute
+                        description=description.strip()
+                    )
+                else:
+                    # Dla zwykłych funkcji używamy ich bezpośrednio
+                    func: ToolFunc = tool  # type: ignore
+                    tool_instance = Tool(
+                        name=name,
+                        func=func,  # Funkcja jest już odpowiedniego typu
+                        description=description.strip()
+                    )
+                
+                self.tools.append(tool_instance)
+                logger.info(f"Załadowano narzędzie: '{name}'")
+
+            if not self.tools:
+                logger.warning("Nie znaleziono żadnych zarejestrowanych narzędzi.")
+                self.agent = None
+                self.agent_executor = None
+                return
+
+            # Ten szablon promptu jest teraz jeszcze ważniejszy!
             prompt_template = """Jesteś asystentem AI z dostępem do różnych narzędzi.
 
 WAŻNE ZASADY:
-1. ZAWSZE używaj narzędzi, gdy pytanie dotyczy:
-   - aktualnej daty, dnia tygodnia, godziny lub czasu (użyj narzędzia 'time')
-   - obliczeń matematycznych (użyj narzędzia 'calculator')
-   - pogody (użyj narzędzia 'weather')
-   - wyszukiwania informacji (użyj narzędzia 'search')
-
-2. NIE odpowiadaj na podstawie swojej wiedzy, jeśli istnieje odpowiednie narzędzie!
-3. NIE zmyślaj dat, czasu ani innych informacji, które mogą być dostarczone przez narzędzia.
-4. Jeśli nie jesteś pewien, czy użyć narzędzia - użyj go!
+1. ZAWSZE analizuj, czy pytanie użytkownika pasuje do opisu jednego z dostępnych narzędzi.
+2. Jeśli pytanie dotyczy informacji, którą może dostarczyć narzędzie (np. aktualna data, obliczenia), ZAWSZE użyj tego narzędzia.
+3. NIE odpowiadaj na podstawie swojej wiedzy, jeśli istnieje dedykowane narzędzie! Musisz go użyć.
+4. NIE zmyślaj dat, czasu ani innych informacji, które mogą być dostarczone przez narzędzia.
 
 NARZĘDZIA:
 ---------
@@ -142,16 +162,16 @@ Masz dostęp do następujących narzędzi:
 Aby użyć narzędzia, użyj następującego formatu:
 
 ```
-Thought: Czy muszę użyć narzędzia? Tak
+Thought: Czy muszę użyć narzędzia? Tak. Pytanie dotyczy [krótkie uzasadnienie], więc użyję narzędzia `[nazwa_narzędzia]`.
 Action: nazwa narzędzia do użycia, powinno być jednym z [{tool_names}]
-Action Input: input do narzędzia
+Action Input: input do narzędzia (może być pusty, jeśli nie jest wymagany)
 Observation: wynik działania narzędzia
 ```
 
 Gdy masz odpowiedź do przekazania człowiekowi, lub gdy nie musisz używać narzędzia, MUSISZ użyć formatu:
 
 ```
-Thought: Czy muszę użyć narzędzia? Nie
+Thought: Czy muszę użyć narzędzia? Nie.
 Final Answer: [twoja odpowiedź tutaj]
 ```
 
@@ -162,7 +182,7 @@ Thought: {agent_scratchpad}"""
 
             prompt = PromptTemplate.from_template(prompt_template)
             
-            # Create React agent using modern approach
+            # Tworzenie agenta pozostaje bez zmian
             if self.llm_manager.llm:
                 self.agent = create_react_agent(
                     llm=self.llm_manager.llm,
@@ -170,78 +190,26 @@ Thought: {agent_scratchpad}"""
                     prompt=prompt
                 )
                 
-                # Create agent executor with improved error handling
                 self.agent_executor = AgentExecutor(
                     agent=self.agent,
                     tools=self.tools,
                     verbose=True,
-                    handle_parsing_errors=True,
-                    max_iterations=3,
+                    handle_parsing_errors="Zauważyłem błąd parsowania. Spróbuję jeszcze raz, analizując problem krok po kroku.",
+                    max_iterations=5,
                     return_intermediate_steps=True
                 )
                 
-                logger.info("Agent setup completed successfully")
+                logger.info(f"Konfiguracja agenta zakończona pomyślnie. Załadowano {len(self.tools)} narzędzi.")
             else:
-                logger.warning("LLM not initialized, agent setup skipped")
+                logger.warning("LLM nie został zainicjowany, konfiguracja agenta pominięta.")
                 self.agent = None
                 self.agent_executor = None
             
         except Exception as e:
-            logger.error(f"Error setting up agent: {e}")
-            # Fallback - disable agent functionality
+            logger.error(f"Krytyczny błąd podczas konfigurowania agenta: {e}", exc_info=True)
             self.agent = None
             self.agent_executor = None
             self.tools = []
-    
-    def _search_tool(self, query: str) -> str:
-        """Search tool implementation."""
-        try:
-            # Mock implementation - in real app would use actual search API
-            return f"Wyniki wyszukiwania dla '{query}': Funkcja wyszukiwania jest w fazie rozwoju."
-        except Exception as e:
-            logger.error(f"Search tool error: {e}")
-            return f"Błąd wyszukiwania: {str(e)}"
-    
-    def _calculator_tool(self, expression: str) -> str:
-        """Calculator tool implementation."""
-        try:
-            # Safe calculation of basic operations
-            allowed_chars = set('0123456789+-*/().,= ')
-            if not all(c in allowed_chars for c in expression):
-                return "Błąd: Niedozwolone znaki w wyrażeniu"
-            
-            result = eval(expression)
-            return f"Wynik: {result}"
-        except Exception as e:
-            logger.error(f"Calculator tool error: {e}")
-            return f"Błąd kalkulacji: {str(e)}"
-    
-    def _weather_tool(self, location: str) -> str:
-        """Weather tool implementation."""
-        try:
-            # Mock weather data - in real app would use weather API
-            weather_data = {
-                "warszawa": "Słonecznie, 22°C",
-                "kraków": "Pochmurnie, 18°C", 
-                "gdańsk": "Deszczowo, 15°C"
-            }
-            
-            location_lower = location.lower()
-            if location_lower in weather_data:
-                return f"Pogoda w {location}: {weather_data[location_lower]}"
-            else:
-                return f"Brak danych pogodowych dla {location}"
-        except Exception as e:
-            logger.error(f"Weather tool error: {e}")
-            return f"Błąd pobierania pogody: {str(e)}"
-    
-    def _time_tool(self, input_text: str = "") -> str:
-        """Time tool implementation."""
-        try:
-            return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        except Exception as e:
-            logger.error(f"Time tool error: {e}")
-            return f"Błąd pobierania czasu: {str(e)}"
     
     async def process_message(
         self, 
@@ -250,53 +218,44 @@ Thought: {agent_scratchpad}"""
         use_rag: bool = True
     ) -> str:
         """
-        Process a user message and generate a response.
-        
-        Args:
-            message: User's message
-            model: Model to use for generation
-            use_rag: Whether to use RAG for response generation
-            
-        Returns:
-            str: Generated response
+        Przetwarza wiadomość użytkownika, decydując czy użyć agenta, RAG czy bezpośredniej odpowiedzi LLM.
         """
         try:
-            # Initialize LLM if not already initialized
             if not self.llm_manager.llm:
                 await self.llm_manager.initialize_llm()
             
-            # Check if message requires agent tools
-            time_keywords = ["jaki jest dzień", "jaka jest data", "która godzina", "jaki mamy dzień", "jaka jest godzina", "kiedy", "data", "godzina", "czas"]
-            calc_keywords = ["oblicz", "policz", "ile to", "wynik", "dodaj", "odejmij", "pomnóż", "podziel"]
-            weather_keywords = ["pogoda", "temperatura", "deszcz", "słońce", "śnieg"]
-            search_keywords = ["wyszukaj", "znajdź", "szukaj", "informacje o"]
-            
-            all_keywords = time_keywords + calc_keywords + weather_keywords + search_keywords
-            
-            if any(keyword in message.lower() for keyword in all_keywords):
+            # Agent sam zdecyduje, czy użyć narzędzia. Nie potrzebujemy już słów kluczowych.
+            if self.agent_executor:
                 try:
-                    # Use agent executor for tool-based responses
+                    logger.info("Przekazuję wiadomość do agenta w celu podjęcia decyzji.")
                     result = await self.agent_executor.ainvoke({"input": message})
+                    
+                    # Sprawdzamy, czy agent faktycznie użył narzędzia, czy od razu dał "Final Answer"
+                    if "Final Answer:" in str(result.get('intermediate_steps', '')) or "Final Answer:" in result.get('log',''):
+                         return result["output"]
+                    
+                    # Jeśli agent nie znalazł zastosowania dla narzędzi, pozwólmy mu odpowiedzieć bez nich
+                    if not result.get('intermediate_steps'):
+                        logger.info("Agent nie użył narzędzi, generowanie odpowiedzi bezpośredniej.")
+                        # Można tu zwrócić jego finalną odpowiedź lub przejść do RAG/direct
+                        return result['output']
+
                     return result["output"]
+
                 except Exception as e:
-                    logger.error(f"Agent execution error: {e}")
-                    # Fallback to direct LLM response
-                    return await self._direct_llm_response(message)
+                    logger.error(f"Błąd wykonania agenta: {e}", exc_info=True)
+                    # W razie błędu agenta, przechodzimy do RAG lub bezpośredniej odpowiedzi
             
-            # Use RAG if enabled and available
             if use_rag and self.rag_chain:
                 try:
                     return await self.process_rag_query(message)
                 except Exception as e:
-                    logger.error(f"RAG processing error: {e}")
-                    # Fallback to direct LLM response
-                    return await self._direct_llm_response(message)
+                    logger.error(f"Błąd przetwarzania RAG: {e}")
             
-            # Direct LLM response as fallback
             return await self._direct_llm_response(message)
             
         except Exception as e:
-            error_msg = f"Error processing message: {str(e)}"
+            error_msg = f"Błąd przetwarzania wiadomości: {str(e)}"
             logger.error(error_msg, exc_info=True)
             raise AIEngineError(error_msg)
     
