@@ -345,4 +345,19 @@ document.addEventListener('DOMContentLoaded', () => {
     // Update stats every 30 seconds
     setInterval(() => wsManager.updateStats(), 30000);
     wsManager.updateStats();
+});
+
+// Sidebar Collapse
+const sidebarCollapseBtn = document.getElementById('sidebarCollapseBtn');
+const bodyRoot = document.getElementById('bodyRoot');
+
+// Przywróć stan z localStorage
+if (localStorage.getItem('sidebarCollapsed') === 'true') {
+    bodyRoot.classList.add('sidebar-collapsed');
+}
+
+sidebarCollapseBtn.addEventListener('click', () => {
+    bodyRoot.classList.toggle('sidebar-collapsed');
+    const collapsed = bodyRoot.classList.contains('sidebar-collapsed');
+    localStorage.setItem('sidebarCollapsed', collapsed ? 'true' : 'false');
 }); 

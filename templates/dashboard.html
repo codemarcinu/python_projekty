@@ -8,10 +8,13 @@
     <link rel="stylesheet" href="{{ url_for('static', path='css/dashboard.css') }}">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
-<body class="dark-theme">
+<body class="dark-theme" id="bodyRoot">
     <!-- Sidebar -->
-    <aside class="sidebar">
+    <aside class="sidebar" id="sidebar">
         <div class="sidebar-header">
+            <button class="sidebar-collapse-btn" id="sidebarCollapseBtn" title="Zwiń/rozwiń menu">
+                <i class="icon icon-chevron-left"></i>
+            </button>
             <div class="logo">
                 <span class="logo-icon">🤖</span>
                 <span class="logo-text">AI Assistant</span>
