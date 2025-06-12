@@ -49,3 +49,6 @@ black>=23.11.0
 isort>=5.12.0
 mypy>=1.7.1
 ruff>=0.1.6
+
+# Added from the code block
+duckduckgo-search>=4.0.0

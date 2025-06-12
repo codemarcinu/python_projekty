@@ -21,9 +21,10 @@ from langchain.agents import AgentExecutor
 from langchain.agents import create_react_agent
 from langchain.tools import Tool
 import torch
+from langchain_ollama import OllamaLLM
 
 from .config_manager import get_settings
-from .conversation_handler import Conversation
+from .conversation_handler import Conversation, get_conversation_manager
 from .llm_manager import get_llm_manager
 from .exceptions import AIEngineError
 from .module_system import get_registered_tools, load_modules
@@ -42,6 +43,7 @@ class AIEngine:
         """Initialize the AI engine with required components."""
         self.settings = get_settings()
         self.llm_manager = get_llm_manager()
+        self.conversation_manager = get_conversation_manager()
         
         # Load all modules from the modules directory
         try:
@@ -68,20 +70,18 @@ class AIEngine:
             raise AIEngineError(f"Failed to create required directories: {e}")
     
     def _setup_chains(self) -> None:
-        """Set up RAG chains and vector store."""
+        """Konfiguruje łańcuchy LangChain."""
         try:
+            # Initialize LLM
+            self.llm = OllamaLLM(model="gemma3:12b")
             self._ensure_directories()
             # Initialize embeddings with new import
-            embeddings = HuggingFaceEmbeddings(
-                model_name=self.settings.rag.embedding_model,
-                model_kwargs={'device': 'cuda' if torch.cuda.is_available() else 'cpu'},
-                trust_remote_code=True
-            )
+            self.embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
             # Initialize vector store with security flag
             try:
                 vector_store = FAISS.load_local(
                     str(self.settings.rag.vector_db_path),
-                    embeddings,
+                    self.embeddings,
                     allow_dangerous_deserialization=True
                 )
                 logger.info("Loaded existing FAISS vector store")
@@ -91,18 +91,17 @@ class AIEngine:
                 vector_store = None
             self.vector_store = vector_store
             
-            # Set up conversational retrieval chain only if vector store exists
+            # Setup RAG chain if vector store is available
             if self.vector_store:
                 self.rag_chain = ConversationalRetrievalChain.from_llm(
-                    llm=self.llm_manager.llm,
+                    llm=self.llm,
                     retriever=self.vector_store.as_retriever(),
                     verbose=True
                 )
             else:
-                self.rag_chain = None
-                logger.warning("RAG chain not initialized - no vector store available")
+                logging.warning("Vector store not available, RAG chain not initialized")
         except Exception as e:
-            logger.error(f"Error setting up chains: {e}")
+            logging.error(f"Error setting up chains: {e}")
             # Fallback setup
             self.vector_store = None
             self.rag_chain = None
@@ -184,9 +183,9 @@ Thought: {agent_scratchpad}"""
             prompt = PromptTemplate.from_template(prompt_template)
             
             # Tworzenie agenta pozostaje bez zmian
-            if self.llm_manager.llm:
+            if self.llm:
                 self.agent = create_react_agent(
-                    llm=self.llm_manager.llm,
+                    llm=self.llm,
                     tools=self.tools,
                     prompt=prompt
                 )
@@ -212,67 +211,51 @@ Thought: {agent_scratchpad}"""
             self.agent_executor = None
             self.tools = []
     
-    async def process_message(
-        self, 
-        message: str, 
-        model: str = "gemma3:12b",
-        use_rag: bool = True
-    ) -> str:
-        """
-        Przetwarza wiadomość użytkownika, decydując czy użyć agenta, RAG czy bezpośredniej odpowiedzi LLM.
-        """
+    async def process_message(self, message: str, conversation_id: str) -> str:
+        """Przetwarza wiadomość użytkownika i zwraca odpowiedź."""
         try:
-            if not self.llm_manager.llm:
-                await self.llm_manager.initialize_llm()
+            # Get conversation history
+            conversation = self.conversation_manager.get_conversation(conversation_id)
+            if not conversation:
+                return "Nie znaleziono konwersacji."
             
-            # Agent sam zdecyduje, czy użyć narzędzia. Nie potrzebujemy już słów kluczowych.
-            if self.agent_executor:
+            # Add user message to history
+            conversation.add_message("user", message)
+            
+            # Process with agent if available
+            if self.agent_executor is not None:
                 try:
-                    logger.info("Przekazuję wiadomość do agenta w celu podjęcia decyzji.")
-                    result = await self.agent_executor.ainvoke({"input": message})
-                    
-                    # Sprawdzamy, czy agent faktycznie użył narzędzia, czy od razu dał "Final Answer"
-                    if "Final Answer:" in str(result.get('intermediate_steps', '')) or "Final Answer:" in result.get('log',''):
-                         return result["output"]
-                    
-                    # Jeśli agent nie znalazł zastosowania dla narzędzi, pozwólmy mu odpowiedzieć bez nich
-                    if not result.get('intermediate_steps'):
-                        logger.info("Agent nie użył narzędzi, generowanie odpowiedzi bezpośredniej.")
-                        # Można tu zwrócić jego finalną odpowiedź lub przejść do RAG/direct
-                        return result['output']
-
-                    return result["output"]
-
+                    response = await self.agent_executor.ainvoke({"input": message})
+                    conversation.add_message("assistant", response["output"])
+                    return response["output"]
                 except Exception as e:
-                    logger.error(f"Błąd wykonania agenta: {e}", exc_info=True)
-                    # W razie błędu agenta, przechodzimy do RAG lub bezpośredniej odpowiedzi
-            
-            if use_rag and self.rag_chain:
-                try:
-                    response = await self.rag_chain.ainvoke({"question": message})
-                    return response["answer"]
-                except Exception as e:
-                    logger.error(f"Błąd RAG: {e}", exc_info=True)
-            
-            # Fallback do bezpośredniej odpowiedzi LLM
-            try:
-                return await self._direct_llm_response(message)
-            except Exception as e:
-                logger.error(f"Direct LLM error: {e}", exc_info=True)
-                return "Przepraszam, nie mogę teraz odpowiedzieć."
-            
+                    logging.error(f"Agent error: {e}")
+                    # Fallback to direct LLM response
+            response = self._direct_llm_response(message)
+            conversation.add_message("assistant", response)
+            return response
+
         except Exception as e:
-            logger.error(f"Error processing message: {e}", exc_info=True)
+            logging.error(f"Error processing message: {e}")
             return "Przepraszam, wystąpił błąd podczas przetwarzania wiadomości."
     
-    async def _direct_llm_response(self, message: str) -> str:
+    def generate(self, message: str) -> str:
         """Generuje bezpośrednią odpowiedź LLM bez użycia narzędzi."""
         try:
-            response = await self.llm_manager.generate(message)
+            response = self.llm.invoke(message)
             return response
         except Exception as e:
-            logger.error(f"Error in direct LLM response: {e}")
-            raise
+            logging.error(f"Error generating response: {e}")
+            return f"Error generating response: {e}"
+    
+    def _direct_llm_response(self, message: str) -> str:
+        """Generuje bezpośrednią odpowiedź LLM bez użycia narzędzi."""
+        try:
+            response = self.llm.invoke(message)
+            return response
+        except Exception as e:
+            logging.error(f"Error generating direct response: {e}")
+            return f"Error generating response: {e}"
     
     async def process_rag_query(self, query: str, chat_history: str = "") -> str:
         """
@@ -309,7 +292,7 @@ Thought: {agent_scratchpad}"""
             "tools_loaded": len(self.tools) if hasattr(self, 'tools') else 0,
             "agent_configured": self.agent is not None,
             "rag_available": self.rag_chain is not None,
-            "llm_initialized": self.llm_manager.llm is not None
+            "llm_initialized": self.llm is not None
         }
 
 def get_ai_engine() -> AIEngine:
