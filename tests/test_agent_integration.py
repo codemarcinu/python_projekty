@@ -97,7 +97,7 @@ async def test_agent_integration(test_case: Dict[str, Any], ai_engine: AIEngine)
     Integration test for agent's tool selection and execution.
     """
     print(f"\nRunning test {test_case['test_id']}: {test_case['description']}")
-    response = await ai_engine.process_message(test_case['query'])
+    response = await ai_engine.process_message(test_case['query'], conversation_id="test-conv")
     assert response is not None, "Agent should return a response"
     # Category-specific assertions
     if test_case['category'] == 'Logika decyzyjna agenta':
@@ -115,7 +115,7 @@ async def test_agent_integration(test_case: Dict[str, Any], ai_engine: AIEngine)
 @pytest.mark.asyncio
 async def test_agent_error_handling(ai_engine: AIEngine):
     """Test error handling capabilities of the agent."""
-    response = await ai_engine.process_message("Pomnóż tekst przez liczbę")
+    response = await ai_engine.process_message("Pomnóż tekst przez liczbę", conversation_id="test-conv")
     assert response is not None
     assert "error" in str(response).lower() or "błąd" in str(response).lower()
 
@@ -133,7 +133,7 @@ async def test_agent_performance(ai_engine: AIEngine):
     
     # Test response time for simple query
     start_time = time.time()
-    response = await ai_engine.process_message("Która jest godzina?")
+    response = await ai_engine.process_message("Która jest godzina?", conversation_id="test-conv")
     end_time = time.time()
     
     response_time = end_time - start_time
@@ -141,7 +141,7 @@ async def test_agent_performance(ai_engine: AIEngine):
     
     # Test concurrent requests
     async def make_request():
-        return await ai_engine.process_message("Która jest godzina?")
+        return await ai_engine.process_message("Która jest godzina?", conversation_id="test-conv")
     
     # Make 5 concurrent requests
     tasks = [make_request() for _ in range(5)]

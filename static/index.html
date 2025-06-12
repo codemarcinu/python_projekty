@@ -1,19 +1,27 @@
 <!DOCTYPE html>
-<html lang="pl">
+<html lang="pl" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Assistant Dashboard</title>
     <link rel="stylesheet" href="/static/css/styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
     <div class="container">
         <div class="main-panel">
             <div class="header">
-                <h1>🤖 AI Assistant Dashboard</h1>
+                <div class="header-top">
+                    <h1>🤖 AI Assistant</h1>
+                    <button id="themeToggle" class="theme-toggle" aria-label="Przełącz motyw">
+                        <span class="theme-icon">🌙</span>
+                    </button>
+                </div>
                 <div class="status-bar">
                     <div class="status">
-                        Status połączenia: <span id="connectionStatus" class="status-disconnected">Rozłączony</span>
+                        Status: <span id="connectionStatus" class="status-disconnected">Rozłączony</span>
                     </div>
                     <div class="model-info">
                         Model: <span id="modelInfo">Gemma3:12B</span>
@@ -39,25 +47,34 @@
             <div class="features">
                 <h2>Funkcje</h2>
                 <div class="feature-grid">
-                    <div class="feature-card">🌦️ Pogoda</div>
-                    <div class="feature-card">🕒 Czas</div>
-                    <div class="feature-card">🧮 Kalkulator</div>
-                    <div class="feature-card">🔍 Wyszukiwanie</div>
-                    <div class="feature-card">📄 Analiza dokumentów</div>
+                    <button class="feature-card" data-feature="weather">🌦️ Pogoda</button>
+                    <button class="feature-card" data-feature="time">🕒 Czas</button>
+                    <button class="feature-card" data-feature="calculator">🧮 Kalkulator</button>
+                    <button class="feature-card" data-feature="search">🔍 Wyszukiwanie</button>
+                    <button class="feature-card" data-feature="documents">📄 Dokumenty</button>
                 </div>
             </div>
         </div>
 
         <div class="chat-panel">
-            <h2>Chat z AI</h2>
+            <div class="chat-header">
+                <h2>Chat z AI</h2>
+                <div class="chat-controls">
+                    <button id="clearChat" class="icon-button" title="Wyczyść historię">🗑️</button>
+                    <button id="exportChat" class="icon-button" title="Eksportuj rozmowę">📥</button>
+                </div>
+            </div>
             <div id="chatHistory" class="chat-history"></div>
             <div class="input-area">
-                <input type="text" id="messageInput" placeholder="Napisz wiadomość...">
-                <button id="sendMessage">Wyślij</button>
+                <input type="text" id="messageInput" placeholder="Napisz wiadomość..." autocomplete="off">
+                <button id="sendMessage" class="send-button">
+                    <span class="button-text">Wyślij</span>
+                    <span class="button-icon">➤</span>
+                </button>
             </div>
         </div>
     </div>
 
-    <script src="/static/js/dashboard.js"></script>
+    <script src="/static/js/app.js"></script>
 </body>
 </html> 

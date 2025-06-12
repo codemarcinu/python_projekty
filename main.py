@@ -11,7 +11,7 @@ from fastapi.responses import RedirectResponse
 from dependency_injector.wiring import inject, Provide
 
 from core.container import Container
-from interfaces.web_ui import router as web_router
+from interfaces.web_ui import router as web_router, RateLimitMiddleware
 from interfaces.api import router as api_router
 from utils.logging import setup_logging
 
@@ -38,6 +38,9 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    
+    # Dodanie Rate Limit Middleware
+    app.add_middleware(RateLimitMiddleware)
 
     # Montowanie plików statycznych
     app.mount("/static", StaticFiles(directory="static"), name="static")
