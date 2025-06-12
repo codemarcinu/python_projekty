@@ -13,7 +13,8 @@ class LLMSettings(BaseModel):
 class RAGSettings(BaseSettings):
     """Settings for RAG (Retrieval-Augmented Generation) system."""
     base_url: str = "http://localhost:11434"
-    embedding_model: str = "all-MiniLM-L6-v2"
+    embedding_model: str = "nomic-ai/nomic-embed-text-v1.5"
+    trust_remote_code: bool = True
     chunk_size: int = 1000
     chunk_overlap: int = 200
     index_path: Path = Path("data/faiss_index.bin")
@@ -21,8 +22,8 @@ class RAGSettings(BaseSettings):
     upload_dir: Path = Path("uploads")
     max_results: int = 5
     similarity_threshold: float = 0.7
-    embedding_dimension: int = 384  # Dimension for all-MiniLM-L6-v2
-    use_ollama_embeddings: bool = False  # Set to True to use Ollama embeddings instead of sentence-transformers
+    embedding_dimension: int = 768  # Dimension for nomic-ai/nomic-embed-text-v1.5
+    use_ollama_embeddings: bool = False
 
     class Config:
         env_prefix = "RAG_"
@@ -33,6 +34,7 @@ class Settings(BaseSettings):
     # Podstawowe ustawienia
     app_name: str = "AI Assistant"
     debug: bool = False
+    version: str = "1.0.0"
     
     # Limity
     max_file_size: int = 52428800  # 50MB
@@ -41,6 +43,8 @@ class Settings(BaseSettings):
     
     # Ścieżki
     log_dir: Path = Path("logs")
+    upload_dir: Path = Path("uploads")
+    data_dir: Path = Path("data")
     
     # Modele i RAG
     llm: LLMSettings = LLMSettings()

@@ -35,9 +35,10 @@ class RAGManager:
     def __init__(
         self,
         model_name: str = "all-MiniLM-L6-v2",
-        index_path: Optional[str] = None
+        index_path: Optional[str] = None,
+        trust_remote_code: bool = False
     ):
-        self.model = SentenceTransformer(model_name)
+        self.model = SentenceTransformer(model_name, trust_remote_code=trust_remote_code)
         self.index_path = index_path or "./data/faiss_index"
         self.dimension = self.model.get_sentence_embedding_dimension()
         self.index = None

@@ -13,6 +13,7 @@ from pydantic import BaseModel
 import logging
 import json
 from datetime import datetime
+import asyncio
 
 from core.ai_engine import AIEngine, get_ai_engine
 from core.conversation_handler import get_conversation_manager
@@ -37,7 +38,20 @@ app = FastAPI(title="AI Assistant API")
 ai_engine = get_ai_engine()
 conversation_manager = get_conversation_manager()
 config_manager = get_settings()
-rag_manager = RAGManager(config_manager.rag)
+rag_manager = RAGManager(
+    model_name=config_manager.rag.embedding_model,
+    trust_remote_code=config_manager.rag.trust_remote_code
+)
+
+@app.on_event("startup")
+async def startup_event():
+    """Inicjalizacja komponentów przy starcie aplikacji."""
+    try:
+        await rag_manager.initialize()
+        logger.info("RAG manager initialized successfully")
+    except Exception as e:
+        logger.error(f"Error initializing RAG manager: {e}")
+        raise
 
 # Konfiguracja CORS
 app.add_middleware(
@@ -179,8 +193,13 @@ async def chat_endpoint(
         )
 
 # Montowanie statycznych plików z frontendu
-if os.path.exists("frontend/build"):
-    app.mount("/", StaticFiles(directory="frontend/build", html=True), name="frontend")
+if os.path.exists("frontend/.svelte-kit/output/client"):
+    app.mount("/", StaticFiles(directory="frontend/.svelte-kit/output/client", html=True), name="frontend")
+else:
+    @app.get("/")
+    async def root():
+        """Strona główna aplikacji."""
+        return {"message": "AI Assistant API", "status": "running", "version": "1.0.0"}
 
 # Middleware do obsługi błędów
 @app.middleware("http")

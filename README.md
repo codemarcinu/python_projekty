@@ -1,135 +1,183 @@
-# Modular AI Assistant
+# AI Assistant API
 
-A modern, modular AI assistant that runs 100% locally on your device. Built with Python, this application provides both a web interface and a command-line interface for interacting with local language models through Ollama.
+Nowoczesny asystent AI wykorzystujący lokalne modele LLM, zbudowany w Python z FastAPI i Svelte.
 
-## Features
+## 🚀 Funkcje
 
-- **100% Local Operation**: All processing happens on your device, ensuring complete privacy
-- **Dual Interface**:
-  - Modern web interface with real-time chat
-  - Powerful command-line interface
-- **RAG System**: Add your own documents and ask questions about them
-- **Modular Architecture**: Easy to extend with new capabilities
-- **Multiple Model Support**: Works with any model available in Ollama
+- 💬 Interaktywny chat z AI
+- 🔍 Wyszukiwanie semantyczne z RAG
+- 📚 Obsługa dokumentów i kontekstu
+- 🔐 Uwierzytelnianie i autoryzacja
+- 🌐 Interfejs WebSocket do komunikacji w czasie rzeczywistym
+- 📊 Monitorowanie i logowanie
+- 🧪 Testy jednostkowe i integracyjne
 
-## Prerequisites
+## 🛠️ Technologie
 
-- Python 3.11 or newer
-- [Ollama](https://ollama.com/) installed and running
-- A model downloaded in Ollama (e.g., `ollama pull llama2`)
+### Backend
+- Python 3.9+
+- FastAPI
+- Pydantic
+- LangChain
+- FAISS
+- Sentence Transformers
+- Ollama
 
-## Installation
+### Frontend
+- Svelte
+- TypeScript
+- TailwindCSS
+- WebSocket
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/yourusername/ai-assistant.git
-   cd ai-assistant
-   ```
+## 📋 Wymagania
 
-2. Create and activate a virtual environment:
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
+- Python 3.9+
+- Node.js 16+
+- Ollama (lokalnie lub zdalnie)
+- 8GB+ RAM (zalecane)
+- GPU (opcjonalnie, dla lepszej wydajności)
 
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
+## 🚀 Instalacja
 
-4. Create a `.env` file:
-   ```bash
-   cp .env.example .env
-   ```
-   Then edit `.env` to configure your settings.
-
-## Usage
-
-### Web Interface
-
-Start the web server:
+1. Sklonuj repozytorium:
 ```bash
-python main.py serve
+git clone https://github.com/yourusername/ai-assistant.git
+cd ai-assistant
 ```
-Then open your browser to `http://localhost:8000`
 
-### Command Line Interface
-
-Start an interactive chat session:
+2. Utwórz i aktywuj środowisko wirtualne:
 ```bash
-python main.py cli
+python -m venv venv
+source venv/bin/activate  # Linux/Mac
+# lub
+.\venv\Scripts\activate  # Windows
 ```
 
-Process a RAG query:
+3. Zainstaluj zależności:
 ```bash
-python main.py rag "What is the main topic of my documents?"
+pip install -r requirements.txt
 ```
 
-Add a document to the RAG system:
+4. Skonfiguruj zmienne środowiskowe:
 ```bash
-python main.py add-doc path/to/your/document.pdf
+cp .env.example .env
+# Edytuj .env zgodnie z potrzebami
 ```
 
-List all conversations:
+5. Uruchom skrypt instalacyjny:
 ```bash
-python main.py list-conversations
+./setup.sh
 ```
 
-## Project Structure
+## 🏃‍♂️ Uruchomienie
+
+1. Uruchom backend:
+```bash
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+2. Uruchom frontend (w osobnym terminalu):
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+3. Otwórz przeglądarkę:
+```
+http://localhost:8000
+```
+
+## 📚 Dokumentacja API
+
+Dostępne endpointy:
+
+- `GET /` - Strona główna
+- `GET /api/health` - Sprawdzenie stanu API
+- `GET /api/models` - Lista dostępnych modeli AI
+- `POST /api/chat` - Endpoint do wysyłania wiadomości
+- `WS /ws/{client_id}` - WebSocket do komunikacji w czasie rzeczywistym
+
+Pełna dokumentacja API dostępna pod adresem:
+```
+http://localhost:8000/docs
+```
+
+## 🧪 Testy
+
+```bash
+# Uruchom wszystkie testy
+pytest
+
+# Uruchom testy z pokryciem
+pytest --cov=.
+
+# Uruchom konkretny test
+pytest tests/test_specific.py
+```
+
+## 📁 Struktura Projektu
 
 ```
-/
-├── core/                 # Core application components
-│   ├── ai_engine.py     # Main AI orchestration
-│   ├── llm_manager.py   # LLM interaction
-│   ├── conversation_handler.py  # Chat history management
-│   └── config_manager.py  # Configuration management
-├── interfaces/          # User interfaces
+project/
+├── core/                 # Rdzeń aplikacji
+│   ├── ai_engine.py     # Główna logika AI
+│   ├── llm_manager.py   # Zarządzanie modelami
+│   ├── rag_manager.py   # Retrieval-Augmented Generation
+│   └── conversation.py  # Obsługa rozmów
+├── interfaces/          # Interfejsy użytkownika
 │   ├── web_ui.py       # FastAPI web interface
-│   └── cli.py          # Typer CLI interface
-├── modules/            # Extensible modules
-├── data/              # User data and vector store
-├── templates/         # HTML templates
-├── static/           # Static web assets
-├── main.py           # Application entry point
-└── requirements.txt  # Project dependencies
+│   ├── cli.py          # Command line interface
+│   └── api.py          # REST API endpoints
+├── config/             # Konfiguracja
+├── utils/              # Narzędzia pomocnicze
+├── static/             # Pliki statyczne (CSS, JS)
+├── tests/              # Testy
+└── frontend/           # Frontend Svelte
 ```
 
-## Configuration
+## 🔧 Konfiguracja
 
-The application is configured through environment variables in the `.env` file:
+Główne ustawienia w pliku `.env`:
 
 ```env
-# LLM Settings
-LLM_MODEL=llama2
-LLM_TEMPERATURE=0.7
-LLM_MAX_TOKENS=2000
+# Ollama Configuration
+OLLAMA_HOST=http://localhost:11434
+OLLAMA_TIMEOUT=300
+
+# Models
+PRIMARY_MODEL=gemma3:12b
+DOCUMENT_MODEL=SpeakLeash/bielik-11b-v2.3-instruct:Q6_K
 
 # RAG Settings
-RAG_CHUNK_SIZE=1000
-RAG_CHUNK_OVERLAP=200
-RAG_EMBEDDING_MODEL=all-MiniLM-L6-v2
+EMBEDDING_MODEL=nomic-ai/nomic-embed-text-v1.5
+TRUST_REMOTE_CODE=true
 
-# Web Interface
-WEB_HOST=127.0.0.1
-WEB_PORT=8000
+# Limits
+MAX_FILE_SIZE=52428800  # 50MB
+MAX_CONVERSATION_LENGTH=100
+REQUEST_TIMEOUT=30
+
+# Paths
+UPLOAD_DIR=./uploads
+FAISS_INDEX_PATH=./data/faiss_index
 ```
 
-## Contributing
+## 🤝 Współpraca
 
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
+1. Fork projektu
+2. Utwórz branch dla nowej funkcji (`git checkout -b feature/amazing-feature`)
+3. Commit zmian (`git commit -m 'Add amazing feature'`)
+4. Push do brancha (`git push origin feature/amazing-feature`)
+5. Otwórz Pull Request
 
-## License
+## 📝 Licencja
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+Ten projekt jest udostępniany na licencji MIT. Szczegóły w pliku [LICENSE](LICENSE).
 
-## Acknowledgments
+## 🙏 Podziękowania
 
-- [Ollama](https://ollama.com/) for providing the local LLM infrastructure
-- [LangChain](https://python.langchain.com/) for AI orchestration
-- [FastAPI](https://fastapi.tiangolo.com/) for the web framework
-- [Typer](https://typer.tiangolo.com/) for the CLI framework 
+- [Ollama](https://github.com/ollama/ollama) za świetne narzędzie do lokalnych modeli LLM
+- [LangChain](https://github.com/langchain-ai/langchain) za framework do aplikacji AI
+- [FastAPI](https://github.com/tiangolo/fastapi) za nowoczesny framework webowy
+- [Svelte](https://github.com/sveltejs/svelte) za świetny framework frontendowy 

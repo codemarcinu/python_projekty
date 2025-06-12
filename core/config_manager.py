@@ -44,6 +44,7 @@ class RAGSettings(BaseModel):
     # Embeddings
     base_url: str = Field(default="http://localhost:11434", description="Ollama API host")
     embedding_model: str = Field(default="nomic-ai/nomic-embed-text-v1.5", description="Model for text embeddings")
+    trust_remote_code: bool = Field(default=True, description="Allow remote code execution for custom models")
     
     # Chunking
     chunk_size: int = Field(default=1000, gt=0, description="Size of text chunks for processing")
