@@ -98,6 +98,10 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
+# Montowanie statycznych plików z frontendu
+if os.path.exists("frontend/build"):
+    app.mount("/", StaticFiles(directory="frontend/build", html=True), name="frontend")
+
 # Endpointy API
 @app.get("/api/health")
 async def health_check():
@@ -192,10 +196,8 @@ async def chat_endpoint(
             detail=f"Error processing message: {str(e)}"
         )
 
-# Montowanie statycznych plików z frontendu
-if os.path.exists("frontend/.svelte-kit/output/client"):
-    app.mount("/", StaticFiles(directory="frontend/.svelte-kit/output/client", html=True), name="frontend")
-else:
+# Fallback dla głównego endpointu
+if not os.path.exists("frontend/build"):
     @app.get("/")
     async def root():
         """Strona główna aplikacji."""
