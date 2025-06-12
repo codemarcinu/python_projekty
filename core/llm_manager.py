@@ -1,131 +1,114 @@
 """
-Moduł zarządzający modelami LLM.
+Moduł zarządzania modelami LLM.
 """
 
-import os
-import logging
-from typing import Dict, Any, Optional
-import aiohttp
+from typing import List, Optional, Dict, Any
+import httpx
 import asyncio
-from langchain_community.llms import Ollama
-from core.config_manager import Settings, get_settings
+from pydantic import BaseModel
+import logging
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-# Singleton instance
-_llm_manager: Optional['LLMManager'] = None
+class ModelConfig(BaseModel):
+    """Konfiguracja modelu."""
+    id: str
+    name: str
+    description: str
+    context_window: int
+    max_tokens: int
+    temperature: float = 0.7
+    is_available: bool = True
 
-def get_llm_manager() -> 'LLMManager':
-    """
-    Zwraca instancję menedżera LLM (singleton).
-    
-    Returns:
-        LLMManager: Instancja menedżera LLM
-    """
-    global _llm_manager
-    if _llm_manager is None:
-        _llm_manager = LLMManager(get_settings())
-    return _llm_manager
+class ModelResponse(BaseModel):
+    """Odpowiedź modelu."""
+    content: str
+    model: str
+    timestamp: datetime
+    tokens_used: Optional[int] = None
+    error: Optional[str] = None
 
 class LLMManager:
-    """Menedżer modeli LLM."""
+    """Klasa zarządzająca modelami LLM."""
     
-    def __init__(self, settings: Settings):
-        """
-        Inicjalizuje menedżera LLM.
+    def __init__(self, ollama_host: str = "http://localhost:11434"):
+        self.ollama_host = ollama_host
+        self.models: Dict[str, ModelConfig] = {}
+        self._client = httpx.AsyncClient(timeout=30.0)
         
-        Args:
-            settings: Ustawienia aplikacji
-        """
-        self.settings = settings
-        self.base_url = settings.llm.ollama_host
-        self.timeout = settings.llm.timeout
-        self.model = settings.llm.model_name
-        self.session: Optional[aiohttp.ClientSession] = None
-        self.llm: Optional[Ollama] = None
+    async def initialize(self):
+        """Inicjalizuje menedżer modeli."""
+        try:
+            # Pobierz listę dostępnych modeli z Ollama
+            response = await self._client.get(f"{self.ollama_host}/api/tags")
+            if response.status_code == 200:
+                models_data = response.json()
+                for model in models_data.get("models", []):
+                    self.models[model["name"]] = ModelConfig(
+                        id=model["name"],
+                        name=model["name"].split(":")[0],
+                        description=f"Model {model['name']}",
+                        context_window=4096,  # Domyślna wartość
+                        max_tokens=2048,      # Domyślna wartość
+                        is_available=True
+                    )
+            else:
+                logger.error(f"Failed to fetch models: {response.status_code}")
+        except Exception as e:
+            logger.error(f"Error initializing LLM manager: {e}")
+            
+    async def get_available_models(self) -> List[ModelConfig]:
+        """Zwraca listę dostępnych modeli."""
+        return list(self.models.values())
     
-    async def initialize_llm(self):
-        """Inicjalizuje połączenie z modelem LLM."""
-        if self.session is None:
-            self.session = aiohttp.ClientSession(
-                base_url=self.base_url,
-                timeout=aiohttp.ClientTimeout(total=self.timeout)
+    async def get_model(self, model_id: str) -> Optional[ModelConfig]:
+        """Pobiera konfigurację modelu."""
+        return self.models.get(model_id)
+    
+    async def generate_response(
+        self,
+        prompt: str,
+        model_id: str,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None
+    ) -> ModelResponse:
+        """Generuje odpowiedź modelu."""
+        try:
+            model = await self.get_model(model_id)
+            if not model or not model.is_available:
+                raise ValueError(f"Model {model_id} is not available")
+                
+            response = await self._client.post(
+                f"{self.ollama_host}/api/generate",
+                json={
+                    "model": model_id,
+                    "prompt": prompt,
+                    "temperature": temperature or model.temperature,
+                    "max_tokens": max_tokens or model.max_tokens
+                }
             )
             
-        # Inicjalizacja modelu
-        try:
-            async with self.session.post(
-                "/api/pull",
-                json={"name": self.model}
-            ) as response:
-                if response.status != 200:
-                    raise Exception(f"Error pulling model: {response.status}")
-                
-                # Inicjalizacja obiektu Ollama
-                self.llm = Ollama(
-                    base_url=self.base_url,
-                    model=self.model,
-                    timeout=self.timeout
+            if response.status_code == 200:
+                result = response.json()
+                return ModelResponse(
+                    content=result["response"],
+                    model=model_id,
+                    timestamp=datetime.now(),
+                    tokens_used=result.get("tokens_used")
                 )
-                logger.info(f"Model {self.model} initialized successfully")
-                
-        except Exception as e:
-            logger.error(f"Error initializing model: {e}")
-            raise
-    
-    async def cleanup(self):
-        """Zamyka połączenie z modelem LLM."""
-        if self.session:
-            await self.session.close()
-            self.session = None
-    
-    async def generate(self, prompt: str, model: Optional[str] = None) -> str:
-        """
-        Generuje odpowiedź na podstawie promptu.
-        
-        Args:
-            prompt: Tekst wejściowy
-            model: Opcjonalna nazwa modelu
-            
-        Returns:
-            str: Wygenerowana odpowiedź
-            
-        Raises:
-            Exception: W przypadku błędu generowania
-        """
-        if not self.session:
-            await self.initialize_llm()
-        
-        if not self.session:
-            raise Exception("Failed to initialize LLM session")
-        
-        try:
-            async with self.session.post(
-                "/api/generate",
-                json={
-                    "model": model or self.model,
-                    "prompt": prompt,
-                    "stream": False
-                }
-            ) as response:
-                if response.status != 200:
-                    raise Exception(f"Error generating response: {response.status}")
-                
-                result = await response.json()
-                return result.get("response", "")
+            else:
+                raise Exception(f"Model generation failed: {response.status_code}")
                 
         except Exception as e:
             logger.error(f"Error generating response: {e}")
-            raise
+            return ModelResponse(
+                content="",
+                model=model_id,
+                timestamp=datetime.now(),
+                error=str(e)
+            )
     
-    def get_health_status(self) -> Dict[str, Any]:
-        """
-        Sprawdza status modelu LLM.
-        
-        Returns:
-            Dict[str, Any]: Status modelu
-        """
-        return {
-            "model": self.model,
-            "status": "connected" if self.session else "disconnected"
-        }
+    async def close(self):
+        """Zamyka połączenia."""
+        await self._client.aclose()

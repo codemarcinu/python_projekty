@@ -1,79 +1,204 @@
 """
-Główny moduł aplikacji AI Assistant.
-Zawiera punkt wejścia i konfigurację serwera.
+Główny plik aplikacji FastAPI z obsługą WebSocket i nowego frontendu.
 """
 
-import logging
-from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
+import os
+from pathlib import Path
+from typing import List, Dict, Optional
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
-from dependency_injector.wiring import inject, Provide
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+import logging
+import json
+from datetime import datetime
 
-from core.container import Container
-from interfaces.web_ui import router as web_router, RateLimitMiddleware
-from interfaces.api import router as api_router
-from utils.logging import setup_logging
+from core.ai_engine import AIEngine, get_ai_engine
+from core.conversation_handler import get_conversation_manager
+from core.config_manager import get_settings
+from core.rag_manager import RAGManager
+from core.auth import get_current_user, User
 
-def create_app() -> FastAPI:
-    """Tworzy i konfiguruje instancję aplikacji FastAPI."""
-    
-    # Inicjalizacja kontenera DI
-    container = Container()
-    
-    # Inicjalizacja aplikacji FastAPI
-    app = FastAPI(
-        title="AI Assistant",
-        description="Asystent AI wykorzystujący lokalne modele LLM",
-        version="1.0.0"
+# Konfiguracja logowania
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('app.log'),
+        logging.StreamHandler()
+    ]
+)
+
+logger = logging.getLogger(__name__)
+
+# Inicjalizacja komponentów
+app = FastAPI(title="AI Assistant API")
+ai_engine = get_ai_engine()
+conversation_manager = get_conversation_manager()
+config_manager = get_settings()
+rag_manager = RAGManager(config_manager.rag)
+
+# Konfiguracja CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # W produkcji należy to ograniczyć
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Modele Pydantic
+class ChatMessage(BaseModel):
+    content: str
+    role: str
+    timestamp: Optional[datetime] = None
+
+class ChatResponse(BaseModel):
+    message: str
+    timestamp: datetime
+
+# WebSocket Connection Manager
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: Dict[str, WebSocket] = {}
+
+    async def connect(self, websocket: WebSocket, client_id: str):
+        await websocket.accept()
+        self.active_connections[client_id] = websocket
+        logger.info(f"WebSocket connection established for client {client_id}")
+
+    def disconnect(self, client_id: str):
+        if client_id in self.active_connections:
+            del self.active_connections[client_id]
+            logger.info(f"WebSocket connection closed for client {client_id}")
+
+    async def send_message(self, message: str, client_id: str):
+        if client_id in self.active_connections:
+            await self.active_connections[client_id].send_text(message)
+            logger.debug(f"Message sent to client {client_id}")
+
+    async def broadcast(self, message: str):
+        for connection in self.active_connections.values():
+            await connection.send_text(message)
+
+manager = ConnectionManager()
+
+# Endpointy API
+@app.get("/api/health")
+async def health_check():
+    """Sprawdzenie stanu API."""
+    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+
+@app.websocket("/ws/{client_id}")
+async def websocket_endpoint(websocket: WebSocket, client_id: str):
+    """Endpoint WebSocket do obsługi komunikacji w czasie rzeczywistym."""
+    try:
+        await manager.connect(websocket, client_id)
+        
+        # Inicjalizacja konwersacji
+        conversation_id = conversation_manager.create_conversation(client_id)
+        logger.info(f"Created conversation {conversation_id} for client {client_id}")
+        
+        while True:
+            try:
+                data = await websocket.receive_text()
+                message = json.loads(data)
+                
+                # Przetwarzanie wiadomości
+                response = await ai_engine.process_message(
+                    message=message["content"],
+                    conversation_id=conversation_id
+                )
+                
+                # Wysyłanie odpowiedzi
+                await manager.send_message(
+                    json.dumps({
+                        "type": "message",
+                        "content": response,
+                        "timestamp": datetime.now().isoformat()
+                    }),
+                    client_id
+                )
+                
+            except WebSocketDisconnect:
+                logger.info(f"WebSocket disconnected for client {client_id}")
+                break
+            except Exception as e:
+                error_msg = f"Error processing message: {str(e)}"
+                logger.error(error_msg, exc_info=True)
+                await manager.send_message(
+                    json.dumps({
+                        "type": "error",
+                        "message": error_msg
+                    }),
+                    client_id
+                )
+                
+    except Exception as e:
+        logger.error(f"WebSocket error for client {client_id}: {str(e)}", exc_info=True)
+    finally:
+        manager.disconnect(client_id)
+        try:
+            conversation_manager.end_conversation(conversation_id)
+            logger.info(f"Ended conversation {conversation_id} for client {client_id}")
+        except:
+            pass
+
+@app.get("/api/models")
+async def list_models(current_user: User = Depends(get_current_user)):
+    """Lista dostępnych modeli AI."""
+    try:
+        models = await ai_engine.list_models()
+        return {"models": models}
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error listing models: {str(e)}"
+        )
+
+@app.post("/api/chat")
+async def chat_endpoint(
+    message: ChatMessage,
+    current_user: User = Depends(get_current_user)
+):
+    """Endpoint do wysyłania wiadomości czatu."""
+    try:
+        response = await ai_engine.process_message(
+            message=message.content,
+            conversation_id=current_user.id
+        )
+        return ChatResponse(
+            message=response,
+            timestamp=datetime.now()
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error processing message: {str(e)}"
+        )
+
+# Montowanie statycznych plików z frontendu
+if os.path.exists("frontend/build"):
+    app.mount("/", StaticFiles(directory="frontend/build", html=True), name="frontend")
+
+# Middleware do obsługi błędów
+@app.middleware("http")
+async def error_handler(request: Request, call_next):
+    try:
+        return await call_next(request)
+    except Exception as e:
+        logger.error(f"Unhandled error: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Internal server error"}
+        )
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        "main:app",
+        host=config_manager.host,
+        port=config_manager.port,
+        reload=config_manager.debug
     )
-
-    # Konfiguracja CORS Middleware
-    origins = ["*"]  # Na etapie deweloperskim pozwalamy na wszystkie źródła
-
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-    
-    # Dodanie Rate Limit Middleware
-    app.add_middleware(RateLimitMiddleware)
-
-    # Montowanie plików statycznych
-    app.mount("/static", StaticFiles(directory="static"), name="static")
-
-    # Podłączenie routerów
-    app.include_router(web_router, prefix="/web", tags=["web"])
-    app.include_router(api_router, prefix="/api", tags=["api"])
-    
-    # Przekierowanie ze strony głównej do interfejsu czatu
-    @app.get("/")
-    async def root():
-        return RedirectResponse(url="/web/chat")
-    
-    # Wire the container to the application
-    container.wire(modules=[__name__])
-    
-    return app
-
-# Tworzymy instancję aplikacji globalnie
-app = create_app()
-
-class ConfigManager:
-    def load_config(self):
-        # Load configuration logic here
-        pass
-
-config_manager = ConfigManager()
-
-@app.on_event("startup")
-async def startup_event():
-    config_manager.load_config()
-    logging.info("Application startup complete.")
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    logging.info("Application shutdown complete.")
