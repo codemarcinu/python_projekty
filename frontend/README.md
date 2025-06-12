@@ -1,38 +1,93 @@
-# sv
+# AI Chat Frontend
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+A modern chat application built with SvelteKit, featuring real-time communication and AI integration.
 
-## Creating a project
+## Features
 
-If you're seeing this, you've probably already done this step. Congrats!
+- Real-time chat using WebSocket
+- Authentication with JWT
+- Conversation management
+- AI model integration
+- Responsive design with Tailwind CSS
+- TypeScript support
 
-```bash
-# create a new project in the current directory
-npx sv create
+## Prerequisites
 
-# create a new project in my-app
-npx sv create my-app
+- Node.js 16+
+- npm or yarn
+- Backend API running on `http://localhost:8000`
+
+## Setup
+
+1. Install dependencies:
+   ```bash
+   npm install
+   # or
+   yarn install
+   ```
+
+2. Create a `.env` file in the root directory with the following variables:
+   ```
+   VITE_API_URL=http://localhost:8000/api/v1
+   VITE_WS_URL=ws://localhost:8000
+   ```
+
+3. Start the development server:
+   ```bash
+   npm run dev
+   # or
+   yarn dev
+   ```
+
+4. Open `http://localhost:3000` in your browser.
+
+## Project Structure
+
+```
+frontend/
+├── src/
+│   ├── lib/
+│   │   ├── components/     # UI components
+│   │   ├── stores/        # Svelte stores
+│   │   ├── services/      # API and WebSocket services
+│   │   └── types/         # TypeScript types
+│   ├── routes/
+│   │   ├── (auth)/        # Authentication routes
+│   │   └── (app)/         # Protected routes
+│   └── app.config.ts      # SvelteKit configuration
+├── static/                # Static assets
+└── tests/                # Test files
 ```
 
-## Developing
+## Development
 
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
+- `npm run dev` - Start development server
+- `npm run build` - Build for production
+- `npm run preview` - Preview production build
+- `npm run test` - Run tests
+- `npm run lint` - Run linter
+- `npm run format` - Format code
 
-```bash
-npm run dev
+## Testing
 
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
-```
-
-## Building
-
-To create a production version of your app:
+The project uses Vitest for unit testing and Playwright for end-to-end testing.
 
 ```bash
-npm run build
+# Run unit tests
+npm run test
+
+# Run e2e tests
+npm run test:e2e
 ```
 
-You can preview the production build with `npm run preview`.
+## Contributing
 
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
+
+## License
+
+MIT

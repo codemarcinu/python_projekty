@@ -1,0 +1,56 @@
+[tool.poetry]
+name = "python-projekty-backend"
+version = "0.1.0"
+description = "Backend for python_projekty refactored to FastAPI + Ollama"
+authors = ["Your Name <your.email@example.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+fastapi = "^0.104.0"
+uvicorn = "^0.24.0"
+pydantic = "^2.4.2"
+pydantic-settings = "^2.0.3"
+sqlalchemy = "^2.0.23"
+alembic = "^1.12.1"
+python-jose = {extras = ["cryptography"], version = "^3.3.0"}
+passlib = {extras = ["bcrypt"], version = "^1.7.4"}
+python-multipart = "^0.0.6"
+httpx = "^0.25.1"
+ollama = "^0.1.5"
+langchain = "^0.0.335"
+chromadb = "^0.4.18"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.3"
+pytest-asyncio = "^0.21.1"
+pytest-cov = "^4.1.0"
+black = "^23.10.1"
+isort = "^5.12.0"
+mypy = "^1.6.1"
+ruff = "^0.1.6"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 88
+target-version = ['py39']
+include = '\.pyi?$'
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --cov=app --cov-report=term-missing" 

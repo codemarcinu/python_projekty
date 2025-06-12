@@ -1,420 +1,247 @@
-## Rola i Kontekst
+# REFAKTORYZACJA PROJEKTU: python_projekty → SvelteKit + FastAPI + Ollama
 
-Jesteś ekspertem w Python, FastAPI, AI/ML i tworzeniu aplikacji z lokalnymi modelami LLM. Pracujesz nad modularnym asystentem AI wykorzystującym Ollama, FAISS, LangChain i nowoczesne technologie webowe.
+## KONTEKST PROJEKTU
+Refaktoryzujesz istniejący projekt Python web app do nowoczesnej architektury:
+- **ŹRÓDŁO**: Tradycyjna aplikacja HTML/CSS/JS z integracją AI
+- **CEL**: SvelteKit frontend + FastAPI backend + Ollama LLM + AI Agents
+- **ARCHITEKTURA**: Modularny monolith z systemem AI agentów
 
-## Technologie i Stack
+## ZASADY REFAKTORYZACJI
 
-- **Backend**: Python 3.9+, FastAPI, Pydantic, asyncio
-- **AI/ML**: Ollama, LangChain, FAISS, HuggingFace Transformers
-- **Frontend**: HTML5, CSS3, JavaScript (ES6+), WebSocket
-- **Bazy danych**: FAISS (wektorowa), SQLite (opcjonalnie)
-- **Narzędzia**: uvicorn, pytest, python-multipart
+### PODEJŚCIE
+- **TYLKO refaktoryzacja** - NIE przepisuj od nowa
+- **Incremental approach** - małe, częste zmiany
+- **Zachowaj działające features** - backward compatibility
+- **Test-first development** - testy przed zmianami
+- **Preservuj logikę biznesową** - przenieś, nie zmieniaj
 
+### KOLEJNOŚĆ DZIAŁAŃ
+1. **BACKUP** - zawsze zrób kopię przed zmianami
+2. **ANALYZE** - zrozum istniejący kod przed refaktorem
+3. **MIGRATE** - przenieś funkcjonalność stopniowo
+4. **TEST** - zweryfikuj działanie po każdej zmianie
+5. **DOCUMENT** - aktualizuj dokumentację
 
-## Architektura Projektu
+## STRUKTURA DOCELOWA
 
+### FRONTEND - SvelteKit
 ```
-project/
-├── core/                 # Rdzeń aplikacji
-│   ├── ai_engine.py     # Główna logika AI
-│   ├── llm_manager.py   # Zarządzanie modelami
-│   ├── rag_manager.py   # Retrieval-Augmented Generation
-│   └── conversation.py  # Obsługa rozmów
-├── interfaces/          # Interfejsy użytkownika
-│   ├── web_ui.py       # FastAPI web interface
-│   ├── cli.py          # Command line interface
-│   └── api.py          # REST API endpoints
-├── config/             # Konfiguracja
-├── utils/              # Narzędzia pomocnicze
-└── static/             # Pliki statyczne (CSS, JS)
+frontend/
+├── src/
+│   ├── lib/
+│   │   ├── components/          # Komponenty UI
+│   │   ├── stores/             # Svelte stores
+│   │   ├── services/           # API clients
+│   │   └── utils/              # Utilities
+│   ├── routes/
+│   │   ├── (app)/              # Protected routes
+│   │   ├── auth/               # Auth pages
+│   │   └── api/                # API endpoints (proxy)
+│   ├── app.html                # HTML template
+│   └── hooks.server.ts         # Server hooks
+├── static/                     # Static assets
+└── tests/                      # Frontend tests
 ```
 
+### BACKEND - FastAPI
+```
+backend/
+├── app/
+│   ├── api/
+│   │   ├── v1/                 # API routes
+│   │   └── deps.py             # Dependencies
+│   ├── core/
+│   │   ├── config.py           # Configuration
+│   │   ├── security.py         # Auth & security
+│   │   └── database.py         # DB setup
+│   ├── models/                 # SQLAlchemy models
+│   ├── schemas/                # Pydantic schemas
+│   ├── services/               # Business logic
+│   │   ├── ai/                 # AI services
+│   │   ├── agents/             # AI agents
+│   │   └── ollama/             # Ollama integration
+│   ├── middleware/             # Custom middleware
+│   └── main.py                 # FastAPI app
+├── alembic/                    # DB migrations
+└── tests/                      # Backend tests
+```
 
-## Zasady Kodowania
+## STANDARDY KODOWANIA
 
-### Python Best Practices
+### PYTHON (Backend)
+- **Type hints** wszędzie - `def func(param: str) -> Dict[str, Any]:`
+- **Pydantic models** dla wszystkich schema
+- **Async/await** dla I/O operations
+- **Dependency injection** w FastAPI
+- **Error handling** z custom exceptions
+- **Logging** z structured logs
 
-- Używaj type hints dla wszystkich funkcji i metod
-- Implementuj async/await dla operacji I/O
-- Stosuj Pydantic models dla walidacji danych
-- Dodawaj docstrings w formacie Google style
-- Używaj f-strings zamiast .format() lub %
-- Implementuj proper error handling z custom exceptions
+### TYPESCRIPT (Frontend)
+- **Strict mode** - `"strict": true`
+- **Interfaces** zamiast types gdzie możliwe
+- **Svelte stores** dla state management
+- **$lib/** imports zamiast relative paths
+- **Component props** z TypeScript
+- **Error boundaries** w komponentach
 
+### NAMING CONVENTIONS
+- **Files**: `kebab-case.ts`, `PascalCase.svelte`
+- **Variables**: `camelCase`, `SCREAMING_SNAKE_CASE` dla constów
+- **Functions**: `camelCase`, `async` prefix dla async functions
+- **Classes**: `PascalCase`
+- **Database**: `snake_case` dla tabel i kolumn
 
-### Przykład dobrego kodu:
+## INTEGRACJA AI & OLLAMA
 
+### OLLAMA SETUP
+- **Models**: llama3.1, codellama, mistral
+- **Local inference** - nie używaj external APIs bez potrzeby
+- **Streaming responses** dla real-time chat
+- **Model switching** w runtime
+- **Resource management** - proper cleanup
+
+### AI AGENTS ARCHITECTURE
 ```python
-from typing import Optional, List
-from pydantic import BaseModel
-import asyncio
-
-class ChatMessage(BaseModel):
-    content: str
-    role: str
-    timestamp: Optional[datetime] = None
-
-async def process_message(
-    message: str, 
-    conversation_id: str,
-    model: str = "gemma3:12b"
-) -> ChatMessage:
-    """
-    Przetwarza wiadomość użytkownika przez model AI.
+# Base agent pattern
+class BaseAgent:
+    def __init__(self, ollama_client: OllamaClient):
+        self.ollama = ollama_client
+        self.tools = []
     
-    Args:
-        message: Treść wiadomości
-        conversation_id: ID konwersacji
-        model: Nazwa modelu do użycia
-        
-    Returns:
-        ChatMessage: Odpowiedź AI
-        
-    Raises:
-        AIEngineError: Gdy model jest niedostępny
-    """
-    try:
-        # Implementacja...
+    async def process(self, message: str) -> AgentResponse:
+        # Implementation
         pass
-    except Exception as e:
-        raise AIEngineError(f"Błąd przetwarzania: {e}")
 ```
 
+### LANGCHAIN/LANGGRAPH
+- **Modular agents** - jeden agent = jedna odpowiedzialność
+- **Tool integration** - web search, document retrieval
+- **Memory management** - conversation history
+- **Error recovery** - graceful degradation
 
-### FastAPI Patterns
+## MIGRATION PATTERNS
 
-- Używaj dependency injection dla współdzielonych zasobów
-- Implementuj proper HTTP status codes
-- Dodawaj response models dla wszystkich endpoints
-- Używaj BackgroundTasks dla długich operacji
-- Implementuj WebSocket dla real-time komunikacji
+### Z HTML/CSS/JS DO SVELTE
+```javascript
+// STARY SPOSÓB - vanilla JS
+document.getElementById('button').addEventListener('click', handler);
 
+// NOWY SPOSÓB - Svelte
+<button on:click={handler}>Click me</button>
+```
 
-### Error Handling
-
-- Twórz custom exception classes
-- Implementuj graceful degradation
-- Dodawaj retry logic z exponential backoff
-- Loguj błędy z odpowiednim poziomem (ERROR, WARNING, INFO)
-- Zwracaj user-friendly error messages
-
-
-## Bezpieczeństwo i Walidacja
-
-- Waliduj wszystkie user inputs
-- Implementuj rate limiting
-- Sanityzuj nazwy plików przed zapisem
-- Ogranicz rozmiar uploadowanych plików (max 50MB)
-- Używaj whitelist dla dozwolonych typów plików
-- Implementuj timeouts dla wszystkich operacji
-
-
-## Wydajność i Optymalizacja
-
-- Implementuj connection pooling
-- Używaj caching dla często używanych danych
-- Ogranicz historię konwersacji (max 100 wiadomości)
-- Implementuj lazy loading dla dużych danych
-- Monitoruj użycie pamięci przez modele
-
-
-## Struktura Odpowiedzi
-
-Gdy tworzysz nowy kod:
-
-1. **Analiza**: Krótko wyjaśnij co implementujesz
-2. **Kod**: Podaj kompletny, działający kod z komentarzami
-3. **Konfiguracja**: Jeśli potrzeba, dodaj wymagane ustawienia
-4. **Testowanie**: Podaj przykład użycia lub test
-5. **Integracja**: Wyjaśnij jak zintegrować z istniejącym kodem
-
-## Modele AI
-
-- **Gemma3:12B**: Model główny do codziennego użytku, tryb agentowy
-- **Bielik-11B-v2.3**: Specjalistyczny model do polskich dokumentów i podsumowań
-- Zawsze sprawdzaj dostępność modelu przed użyciem
-- Implementuj fallback na inny model w przypadku błędu
-
-
-## Zakazane Praktyki
-
-- NIE używaj global variables
-- NIE hardkoduj ścieżek plików
-- NIE ignoruj exceptions
-- NIE twórz synchronicznego kodu dla operacji I/O
-- NIE używaj print() do debugowania (używaj logging)
-- NIE commituj plików .env z sekretami
-
-
-## Logging i Monitoring
-
+### Z FLASK/DJANGO DO FASTAPI
 ```python
-import logging
-from datetime import datetime
+# STARY SPOSÓB - Flask
+@app.route('/api/chat', methods=['POST'])
+def chat():
+    return jsonify(response)
 
-# Konfiguracja logowania
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('app.log'),
-        logging.StreamHandler()
-    ]
-)
-
-logger = logging.getLogger(__name__)
+# NOWY SPOSÓB - FastAPI
+@router.post("/chat", response_model=ChatResponse)
+async def chat(request: ChatRequest) -> ChatResponse:
+    return response
 ```
 
+## PERFORMANCE & SECURITY
 
-## Environment i Konfiguracja
+### OPTIMIZATION
+- **Lazy loading** komponentów Svelte
+- **API response caching** gdzie możliwe
+- **Database query optimization** z proper indexes
+- **Static asset optimization** w SvelteKit
+- **Bundle size monitoring** - analizuj wielkość
 
-Zawsze używaj zmiennych środowiskowych dla:
+### SECURITY
+- **CORS** properly configured
+- **Rate limiting** na API endpoints
+- **Input validation** z Pydantic
+- **SQL injection prevention** z SQLAlchemy
+- **JWT tokens** dla auth
 
-- Hosty i porty
-- API keys (jeśli używane)
-- Ścieżki do plików
-- Limity i timeouts
-- Nazwy modeli
+## TESTING STRATEGY
 
+### FRONTEND TESTS
+- **Unit tests** - Vitest dla utilities
+- **Component tests** - @testing-library/svelte
+- **E2E tests** - Playwright
+- **Type checking** - `svelte-check`
 
-## Przykład .env:
+### BACKEND TESTS
+- **Unit tests** - pytest dla services
+- **Integration tests** - TestClient dla API
+- **Database tests** - separate test DB
+- **AI agent tests** - mock Ollama responses
 
+## BŁĘDY DO UNIKANIA
+
+### ARCHITEKTURA
+❌ **NIE mieszaj** logiki biznesowej z UI komponentami
+❌ **NIE używaj** direct database calls w frontend
+❌ **NIE ignoruj** TypeScript errors
+❌ **NIE commit** bez testów
+
+### AI INTEGRATION
+❌ **NIE hardcode** model names
+❌ **NIE blokuj** UI podczas AI inference
+❌ **NIE przechowuj** sensitive data w prompt history
+❌ **NIE używaj** synchronous calls do Ollama
+
+## WORKFLOW COMMANDS
+
+### DEVELOPMENT
 ```bash
-# Ollama Configuration
-OLLAMA_HOST=http://localhost:11434
-OLLAMA_TIMEOUT=300
+# Backend
+cd backend && uvicorn app.main:app --reload --port 8000
 
-# Models
-PRIMARY_MODEL=gemma3:12b
-DOCUMENT_MODEL=SpeakLeash/bielik-11b-v2.3-instruct:Q6_K
+# Frontend  
+cd frontend && npm run dev -- --port 3000
 
-# Limits
-MAX_FILE_SIZE=52428800  # 50MB
-MAX_CONVERSATION_LENGTH=100
-REQUEST_TIMEOUT=30
-
-# Paths
-UPLOAD_DIR=./uploads
-FAISS_INDEX_PATH=./data/faiss_index
+# Tests
+pytest backend/tests/
+npm run test frontend/
 ```
 
-
-## Testowanie
-
-- Pisz unit tests dla core logic
-- Testuj error handling scenarios
-- Mockuj zewnętrzne zależności (Ollama)
-- Testuj WebSocket connections
-- Używaj pytest fixtures dla setup/teardown
-
-Pamiętaj: Priorytetem jest stabilność, bezpieczeństwo i maintainability kodu. Zawsze implementuj proper error handling i logging.
-## Rola i Kontekst
-
-Jesteś ekspertem w Python, FastAPI, AI/ML i tworzeniu aplikacji z lokalnymi modelami LLM. Pracujesz nad modularnym asystentem AI wykorzystującym Ollama, FAISS, LangChain i nowoczesne technologie webowe.
-
-## Technologie i Stack
-
-- **Backend**: Python 3.9+, FastAPI, Pydantic, asyncio
-- **AI/ML**: Ollama, LangChain, FAISS, HuggingFace Transformers
-- **Frontend**: HTML5, CSS3, JavaScript (ES6+), WebSocket
-- **Bazy danych**: FAISS (wektorowa), SQLite (opcjonalnie)
-- **Narzędzia**: uvicorn, pytest, python-multipart
-
-
-## Architektura Projektu
-
-```
-project/
-├── core/                 # Rdzeń aplikacji
-│   ├── ai_engine.py     # Główna logika AI
-│   ├── llm_manager.py   # Zarządzanie modelami
-│   ├── rag_manager.py   # Retrieval-Augmented Generation
-│   └── conversation.py  # Obsługa rozmów
-├── interfaces/          # Interfejsy użytkownika
-│   ├── web_ui.py       # FastAPI web interface
-│   ├── cli.py          # Command line interface
-│   └── api.py          # REST API endpoints
-├── config/             # Konfiguracja
-├── utils/              # Narzędzia pomocnicze
-└── static/             # Pliki statyczne (CSS, JS)
-```
-
-
-## Zasady Kodowania
-
-### Python Best Practices
-
-- Używaj type hints dla wszystkich funkcji i metod
-- Implementuj async/await dla operacji I/O
-- Stosuj Pydantic models dla walidacji danych
-- Dodawaj docstrings w formacie Google style
-- Używaj f-strings zamiast .format() lub %
-- Implementuj proper error handling z custom exceptions
-
-
-### Przykład dobrego kodu:
-
-```python
-from typing import Optional, List
-from pydantic import BaseModel
-import asyncio
-
-class ChatMessage(BaseModel):
-    content: str
-    role: str
-    timestamp: Optional[datetime] = None
-
-async def process_message(
-    message: str, 
-    conversation_id: str,
-    model: str = "gemma3:12b"
-) -> ChatMessage:
-    """
-    Przetwarza wiadomość użytkownika przez model AI.
-    
-    Args:
-        message: Treść wiadomości
-        conversation_id: ID konwersacji
-        model: Nazwa modelu do użycia
-        
-    Returns:
-        ChatMessage: Odpowiedź AI
-        
-    Raises:
-        AIEngineError: Gdy model jest niedostępny
-    """
-    try:
-        # Implementacja...
-        pass
-    except Exception as e:
-        raise AIEngineError(f"Błąd przetwarzania: {e}")
-```
-
-
-### FastAPI Patterns
-
-- Używaj dependency injection dla współdzielonych zasobów
-- Implementuj proper HTTP status codes
-- Dodawaj response models dla wszystkich endpoints
-- Używaj BackgroundTasks dla długich operacji
-- Implementuj WebSocket dla real-time komunikacji
-
-
-### Error Handling
-
-- Twórz custom exception classes
-- Implementuj graceful degradation
-- Dodawaj retry logic z exponential backoff
-- Loguj błędy z odpowiednim poziomem (ERROR, WARNING, INFO)
-- Zwracaj user-friendly error messages
-
-
-## Bezpieczeństwo i Walidacja
-
-- Waliduj wszystkie user inputs
-- Implementuj rate limiting
-- Sanityzuj nazwy plików przed zapisem
-- Ogranicz rozmiar uploadowanych plików (max 50MB)
-- Używaj whitelist dla dozwolonych typów plików
-- Implementuj timeouts dla wszystkich operacji
-
-
-## Wydajność i Optymalizacja
-
-- Implementuj connection pooling
-- Używaj caching dla często używanych danych
-- Ogranicz historię konwersacji (max 100 wiadomości)
-- Implementuj lazy loading dla dużych danych
-- Monitoruj użycie pamięci przez modele
-
-
-## Struktura Odpowiedzi
-
-Gdy tworzysz nowy kod:
-
-1. **Analiza**: Krótko wyjaśnij co implementujesz
-2. **Kod**: Podaj kompletny, działający kod z komentarzami
-3. **Konfiguracja**: Jeśli potrzeba, dodaj wymagane ustawienia
-4. **Testowanie**: Podaj przykład użycia lub test
-5. **Integracja**: Wyjaśnij jak zintegrować z istniejącym kodem
-
-## Modele AI
-
-- **Gemma3:12B**: Model główny do codziennego użytku, tryb agentowy
-- **Bielik-11B-v2.3**: Specjalistyczny model do polskich dokumentów i podsumowań
-- Zawsze sprawdzaj dostępność modelu przed użyciem
-- Implementuj fallback na inny model w przypadku błędu
-
-
-## Zakazane Praktyki
-
-- NIE używaj global variables
-- NIE hardkoduj ścieżek plików
-- NIE ignoruj exceptions
-- NIE twórz synchronicznego kodu dla operacji I/O
-- NIE używaj print() do debugowania (używaj logging)
-- NIE commituj plików .env z sekretami
-
-
-## Logging i Monitoring
-
-```python
-import logging
-from datetime import datetime
-
-# Konfiguracja logowania
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('app.log'),
-        logging.StreamHandler()
-    ]
-)
-
-logger = logging.getLogger(__name__)
-```
-
-
-## Environment i Konfiguracja
-
-Zawsze używaj zmiennych środowiskowych dla:
-
-- Hosty i porty
-- API keys (jeśli używane)
-- Ścieżki do plików
-- Limity i timeouts
-- Nazwy modeli
-
-
-## Przykład .env:
-
+### MIGRATION HELPERS
 ```bash
-# Ollama Configuration
-OLLAMA_HOST=http://localhost:11434
-OLLAMA_TIMEOUT=300
+# Backup current state
+git checkout -b backup-before-refactor
 
-# Models
-PRIMARY_MODEL=gemma3:12b
-DOCUMENT_MODEL=SpeakLeash/bielik-11b-v2.3-instruct:Q6_K
+# Create new structure
+mkdir -p frontend/src/{lib,routes} backend/app/{api,core,models,schemas,services}
 
-# Limits
-MAX_FILE_SIZE=52428800  # 50MB
-MAX_CONVERSATION_LENGTH=100
-REQUEST_TIMEOUT=30
-
-# Paths
-UPLOAD_DIR=./uploads
-FAISS_INDEX_PATH=./data/faiss_index
+# Install dependencies
+pip install fastapi uvicorn sqlalchemy pydantic ollama
+npm create svelte@latest frontend
 ```
 
+## PROMPTS POMOCNICZE
 
-## Testowanie
+### ANALIZA KODU
+"Przeanalizuj ten plik i wyjaśnij jego funkcjonalność, zależności i możliwe miejsca refaktoru"
 
-- Pisz unit tests dla core logic
-- Testuj error handling scenarios
-- Mockuj zewnętrzne zależności (Ollama)
-- Testuj WebSocket connections
-- Używaj pytest fixtures dla setup/teardown
+### MIGRACJA KOMPONENTU  
+"Przekonwertuj ten vanilla JS kod do komponentu Svelte, zachowując dokładnie tę samą funkcjonalność"
 
-Pamiętaj: Priorytetem jest stabilność, bezpieczeństwo i maintainability kodu. Zawsze implementuj proper error handling i logging.
+### STWORZENIE API
+"Stwórz FastAPI endpoint dla tej funkcjonalności, używając Pydantic schemas i proper error handling"
+
+### INTEGRACJA OLLAMA
+"Dodaj integrację z Ollama do tego serwisu, z obsługą streaming i error recovery"
+
+## CHECKLIST REFAKTORYZACJI
+
+- [ ] Backup kompletny stworzony
+- [ ] Struktura folderów utworzona
+- [ ] Dependencies zainstalowane
+- [ ] Konfiguracja środowiska
+- [ ] Migracja logiki biznesowej
+- [ ] Testy przeportowane
+- [ ] Integracja AI działająca
+- [ ] Performance testing
+- [ ] Security review
+- [ ] Dokumentacja zaktualizowana
+
+---
+
+**PAMIĘTAJ**: Refaktoryzacja to maraton, nie sprint. Rób częste commity, testuj każdą zmianę, zachowuj working state.
