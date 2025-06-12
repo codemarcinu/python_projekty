@@ -112,3 +112,14 @@ class LLMManager:
     async def close(self):
         """Zamyka połączenia."""
         await self._client.aclose()
+
+# Singleton instance
+_llm_manager: Optional[LLMManager] = None
+
+async def get_llm_manager() -> LLMManager:
+    """Zwraca instancję LLMManager (singleton)."""
+    global _llm_manager
+    if _llm_manager is None:
+        _llm_manager = LLMManager()
+        await _llm_manager.initialize()
+    return _llm_manager
