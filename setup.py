@@ -2,14 +2,24 @@ from setuptools import setup, find_packages
 
 setup(
     name="ai-assistant",
-    version="0.1.0",
+    version="1.0.0",
     packages=find_packages(),
     install_requires=[
-        "pydantic>=2.5.0",
-        "pydantic-settings>=2.1.0",
-        "python-dotenv>=1.0.0",
-        "ollama>=0.1.0",
-        "typer[all]>=0.9.0",
+        "fastapi",
+        "uvicorn",
+        "typer",
+        "rich",
+        "python-multipart",
+        "pydantic",
+        "langchain",
+        "faiss-cpu",
+        "torch",
+        "transformers",
+        "python-dotenv",
+        "aiohttp",
+        "structlog",
+        "redis",
+        "dependency-injector"
     ],
-    python_requires=">=3.11",
+    python_requires=">=3.9",
 ) 

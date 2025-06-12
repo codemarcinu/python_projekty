@@ -182,114 +182,167 @@ class WebSocketManager {
 // Initialize WebSocket connection
 const wsManager = new WebSocketManager();
 
-// Chat Functions
-function sendMessage() {
-    const messageInput = document.getElementById('messageInput');
-    const message = messageInput.value.trim();
+// Theme Management
+const themeToggle = document.querySelector('.theme-toggle');
+const body = document.body;
 
+// Check for saved theme preference
+const savedTheme = localStorage.getItem('theme');
+if (savedTheme === 'light') {
+    body.classList.remove('dark-theme');
+}
+
+themeToggle.addEventListener('click', () => {
+    body.classList.toggle('dark-theme');
+    localStorage.setItem('theme', body.classList.contains('dark-theme') ? 'dark' : 'light');
+});
+
+// Chat Interface
+const messageInput = document.getElementById('messageInput');
+const chatHistory = document.getElementById('chatHistory');
+const sendButton = document.querySelector('.send-button');
+
+// Auto-resize textarea
+messageInput.addEventListener('input', () => {
+    messageInput.style.height = 'auto';
+    messageInput.style.height = messageInput.scrollHeight + 'px';
+});
+
+// Handle Enter key
+messageInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+    }
+});
+
+function sendMessage() {
+    const message = messageInput.value.trim();
     if (!message) return;
 
-    // Add user message to chat
-    wsManager.displayMessage('user', message);
+    // Add user message
+    addMessage('user', message);
+    
+    // Clear input
     messageInput.value = '';
+    messageInput.style.height = 'auto';
+    
+    // Simulate AI response (replace with actual API call)
+    setTimeout(() => {
+        addMessage('ai', 'To jest przykładowa odpowiedź AI. W rzeczywistej implementacji tutaj będzie odpowiedź z modelu.');
+    }, 1000);
+}
 
-    // Send to WebSocket
-    wsManager.sendMessage(message);
+function addMessage(role, content) {
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `message ${role}-message`;
+    
+    const icon = role === 'user' ? '👤' : '🤖';
+    const name = role === 'user' ? 'Ty' : 'AI Assistant';
+    
+    messageDiv.innerHTML = `
+        <div class="message-header">
+            <span class="message-icon">${icon}</span>
+            <span class="message-name">${name}</span>
+            <span class="message-time">${new Date().toLocaleTimeString()}</span>
+        </div>
+        <div class="message-content">${content}</div>
+    `;
+    
+    chatHistory.appendChild(messageDiv);
+    chatHistory.scrollTop = chatHistory.scrollHeight;
 }
 
 // File Upload Handling
 const dropZone = document.getElementById('dropZone');
 const fileList = document.getElementById('fileList');
 
-if (dropZone) {
-    dropZone.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        dropZone.classList.add('dragover');
-    });
+dropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropZone.classList.add('dragover');
+});
 
-    dropZone.addEventListener('dragleave', () => {
-        dropZone.classList.remove('dragover');
-    });
+dropZone.addEventListener('dragleave', () => {
+    dropZone.classList.remove('dragover');
+});
 
-    dropZone.addEventListener('drop', handleFileDrop);
-    dropZone.addEventListener('click', triggerFileInput);
-}
-
-function handleFileDrop(e) {
+dropZone.addEventListener('drop', (e) => {
     e.preventDefault();
     dropZone.classList.remove('dragover');
-    const files = e.dataTransfer.files;
+    
+    const files = Array.from(e.dataTransfer.files);
     handleFiles(files);
-}
+});
 
-function triggerFileInput() {
+dropZone.addEventListener('click', () => {
     const input = document.createElement('input');
     input.type = 'file';
     input.multiple = true;
-    input.accept = '.pdf,.txt,.doc,.docx';
-    input.onchange = (e) => handleFiles(e.target.files);
+    input.accept = '.pdf,.txt';
+    
+    input.onchange = (e) => {
+        const files = Array.from(e.target.files);
+        handleFiles(files);
+    };
+    
     input.click();
-}
+});
 
 function handleFiles(files) {
-    Array.from(files).forEach(file => {
+    files.forEach(file => {
         if (file.size > 50 * 1024 * 1024) { // 50MB limit
-            wsManager.showError('Plik jest za duży. Maksymalny rozmiar to 50MB.');
+            alert(`Plik ${file.name} jest za duży. Maksymalny rozmiar to 50MB.`);
             return;
         }
-
-        const formData = new FormData();
-        formData.append('file', file);
-
-        fetch('/api/upload', {
-            method: 'POST',
-            body: formData
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.status === 'success') {
-                addFileToList(file.name);
-                wsManager.showNotification('Plik został przesłany pomyślnie', 'success');
-            } else {
-                wsManager.showError('Błąd podczas przesyłania pliku');
-            }
-        })
-        .catch(error => {
-            console.error('Upload error:', error);
-            wsManager.showError('Błąd podczas przesyłania pliku');
-        });
+        
+        addFileToList(file);
     });
 }
 
-function addFileToList(filename) {
-    if (!fileList) return;
-    
+function addFileToList(file) {
     const fileItem = document.createElement('div');
     fileItem.className = 'file-item';
+    
+    const fileSize = formatFileSize(file.size);
+    const fileType = file.name.split('.').pop().toUpperCase();
+    
     fileItem.innerHTML = `
-        <i class="icon icon-file"></i>
-        <span>${filename}</span>
-        <button onclick="deleteFile('${filename}')" class="delete-btn">
-            <i class="icon icon-trash"></i>
-        </button>
+        <div class="file-icon">
+            <i class="icon icon-file-text"></i>
+        </div>
+        <div class="file-info">
+            <div class="file-name">${file.name}</div>
+            <div class="file-meta">${fileSize} • ${fileType}</div>
+        </div>
+        <div class="file-actions">
+            <button class="btn btn-icon" title="Usuń">
+                <i class="icon icon-trash"></i>
+            </button>
+        </div>
     `;
+    
     fileList.appendChild(fileItem);
 }
 
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+// Model Selection
+const modelSelect = document.getElementById('modelSelect');
+modelSelect.addEventListener('change', (e) => {
+    // Handle model change (implement API call)
+    console.log('Selected model:', e.target.value);
+});
+
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
-    const messageInput = document.getElementById('messageInput');
-    const sendButton = document.getElementById('sendMessage');
-
-    if (messageInput && sendButton) {
-        messageInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-                sendMessage();
-            }
-        });
-
-        sendButton.addEventListener('click', sendMessage);
-    }
+    // Add initial system message
+    addMessage('ai', 'Witaj! Jestem Twoim asystentem AI. Jak mogę Ci pomóc?');
 
     // Update stats every 30 seconds
     setInterval(() => wsManager.updateStats(), 30000);

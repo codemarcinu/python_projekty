@@ -7,10 +7,12 @@ rozszerzającymi funkcjonalność aplikacji.
 
 from typing import Dict, Callable, Any, List, Union, Type
 import importlib
+import importlib.util
 import os
 import functools
 from functools import wraps
 import inspect
+import sys
 from core.tool_models import BaseTool
 
 # Słownik przechowujący zarejestrowane narzędzia
@@ -102,11 +104,23 @@ def load_modules(module_dir: str) -> None:
     if not os.path.exists(module_dir):
         raise FileNotFoundError(f"Katalog modułów '{module_dir}' nie istnieje")
     
+    # Dodaj katalog modułów do sys.path jeśli nie jest już dodany
+    if module_dir not in sys.path:
+        sys.path.append(module_dir)
+    
     for filename in os.listdir(module_dir):
         if filename.endswith('.py') and not filename.startswith('__'):
             module_name = filename[:-3]
             try:
-                module = importlib.import_module(f"{module_dir.replace('/', '.')}.{module_name}")
+                # Użyj importlib.util do ładowania modułu
+                module_path = os.path.join(module_dir, filename)
+                spec = importlib.util.spec_from_file_location(module_name, module_path)
+                if spec is None:
+                    raise ImportError(f"Nie można utworzyć specyfikacji dla modułu {module_name}")
+                
+                module = importlib.util.module_from_spec(spec)
+                sys.modules[module_name] = module
+                spec.loader.exec_module(module)
                 
                 # Szukamy klas dziedziczących po BaseTool
                 for name, obj in inspect.getmembers(module):
@@ -120,6 +134,6 @@ def load_modules(module_dir: str) -> None:
                         register_tool(tool_instance)
                         print(f"Zarejestrowano narzędzie: {tool_instance.name}")
                 
-            except ImportError as e:
+            except Exception as e:
                 print(f"Błąd podczas ładowania modułu {module_name}: {str(e)}")
                 raise

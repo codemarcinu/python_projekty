@@ -6,46 +6,119 @@
     <title>AI Assistant Dashboard 2025</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/lucide@0.3.0/dist/css/lucide.min.css">
     <link rel="stylesheet" href="{{ url_for('static', path='css/dashboard.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
-<body>
+<body class="dark-theme">
     <!-- Sidebar -->
     <aside class="sidebar">
-        <div class="logo">🤖 AI Assistant</div>
-        <nav>
+        <div class="sidebar-header">
+            <div class="logo">
+                <span class="logo-icon">🤖</span>
+                <span class="logo-text">AI Assistant</span>
+            </div>
+        </div>
+        <nav class="sidebar-nav">
             <ul>
-                <li><i class="icon icon-home"></i> Dashboard</li>
-                <li><i class="icon icon-file"></i> Dokumenty</li>
-                <li><i class="icon icon-message-square"></i> Chat</li>
-                <li><i class="icon icon-settings"></i> Ustawienia</li>
+                <li class="active">
+                    <a href="#dashboard">
+                        <i class="icon icon-home"></i>
+                        <span>Dashboard</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="#documents">
+                        <i class="icon icon-file"></i>
+                        <span>Dokumenty</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="#chat">
+                        <i class="icon icon-message-square"></i>
+                        <span>Chat</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="#settings">
+                        <i class="icon icon-settings"></i>
+                        <span>Ustawienia</span>
+                    </a>
+                </li>
             </ul>
         </nav>
+        <div class="sidebar-footer">
+            <div class="theme-toggle">
+                <i class="icon icon-moon"></i>
+            </div>
+        </div>
     </aside>
 
     <!-- Main Content -->
     <main class="main-content">
+        <header class="main-header">
+            <h1>Dashboard</h1>
+            <div class="header-actions">
+                <button class="btn btn-primary">
+                    <i class="icon icon-plus"></i>
+                    Nowy dokument
+                </button>
+            </div>
+        </header>
+
         <!-- Quick Stats -->
         <section class="stats-section">
             <div class="stats-grid">
-                <div class="card">
-                    <h3>Aktywne modele</h3>
-                    <div class="model-status">Gemma3:12B ● Online</div>
+                <div class="stat-card">
+                    <div class="stat-icon">
+                        <i class="icon icon-cpu"></i>
+                    </div>
+                    <div class="stat-content">
+                        <h3>Aktywne modele</h3>
+                        <div class="stat-value">Gemma3:12B</div>
+                        <div class="stat-status online">Online</div>
+                    </div>
                 </div>
-                <div class="card">
-                    <h3>Przetworzone dokumenty</h3>
-                    <div class="doc-count">27</div>
+                <div class="stat-card">
+                    <div class="stat-icon">
+                        <i class="icon icon-file-text"></i>
+                    </div>
+                    <div class="stat-content">
+                        <h3>Przetworzone dokumenty</h3>
+                        <div class="stat-value">27</div>
+                        <div class="stat-trend positive">+5 dzisiaj</div>
+                    </div>
                 </div>
-                <div class="card">
-                    <h3>Użycie pamięci</h3>
-                    <div class="memory-usage">4.2 GB</div>
+                <div class="stat-card">
+                    <div class="stat-icon">
+                        <i class="icon icon-hard-drive"></i>
+                    </div>
+                    <div class="stat-content">
+                        <h3>Użycie pamięci</h3>
+                        <div class="stat-value">4.2 GB</div>
+                        <div class="stat-progress">
+                            <div class="progress-bar" style="width: 65%"></div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </section>
 
         <!-- RAG Section -->
         <section class="rag-section">
-            <h2>Zarządzanie Dokumentami</h2>
+            <div class="section-header">
+                <h2>Zarządzanie Dokumentami</h2>
+                <div class="section-actions">
+                    <button class="btn btn-secondary">
+                        <i class="icon icon-upload"></i>
+                        Upload
+                    </button>
+                </div>
+            </div>
             <div class="rag-dropzone" id="dropZone">
-                Przeciągnij pliki PDF/TXT lub kliknij aby wybrać
+                <div class="dropzone-content">
+                    <i class="icon icon-upload-cloud"></i>
+                    <p>Przeciągnij pliki PDF/TXT lub kliknij aby wybrać</p>
+                    <span class="dropzone-hint">Maksymalny rozmiar: 50MB</span>
+                </div>
             </div>
             <div id="fileList" class="file-list"></div>
         </section>
@@ -53,21 +126,36 @@
 
     <!-- AI Panel -->
     <section class="ai-panel">
-        <div class="card">
+        <div class="panel-header">
             <div class="model-selector">
-                <select id="modelSelect">
+                <select id="modelSelect" class="select-primary">
                     <option value="gemma">Gemma3:12B (Ogólny)</option>
                     <option value="bielik">Bielik-11B (Dokumenty)</option>
                 </select>
+            </div>
+            <div class="panel-actions">
+                <button class="btn btn-icon" title="Nowa rozmowa">
+                    <i class="icon icon-plus"></i>
+                </button>
+                <button class="btn btn-icon" title="Ustawienia">
+                    <i class="icon icon-settings"></i>
+                </button>
             </div>
         </div>
 
         <!-- Chat Interface -->
         <div class="chat-container">
             <div id="chatHistory" class="chat-history"></div>
-            <div class="chat-input">
-                <input type="text" id="messageInput" placeholder="Zapytaj AI...">
-                <button onclick="sendMessage()">Wyślij</button>
+            <div class="chat-input-container">
+                <div class="chat-input-wrapper">
+                    <textarea id="messageInput" placeholder="Zapytaj AI..." rows="1"></textarea>
+                    <button class="btn btn-primary send-button" onclick="sendMessage()">
+                        <i class="icon icon-send"></i>
+                    </button>
+                </div>
+                <div class="chat-input-footer">
+                    <span class="input-hint">Naciśnij Enter aby wysłać, Shift + Enter dla nowej linii</span>
+                </div>
             </div>
         </div>
     </section>

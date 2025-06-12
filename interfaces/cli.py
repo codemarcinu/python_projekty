@@ -5,11 +5,16 @@ Provides a text-based interface for interacting with the AI Assistant.
 import asyncio
 from pathlib import Path
 from typing import Optional
+import uuid
 
 import typer
+import uvicorn
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.prompt import Prompt
+from core.container import Container
+from utils.logging import setup_logging
+from main import app as fastapi_app
 
 from core.ai_engine import get_ai_engine
 from core.conversation_handler import get_conversation_manager
@@ -40,7 +45,8 @@ def chat(
             console.print(f"[red]Conversation {conversation_id} not found[/red]")
             return
     else:
-        conversation = conversation_manager.create_conversation(str(conversation_id))
+        conversation_id_new = str(uuid.uuid4())
+        conversation = conversation_manager.create_conversation(conversation_id_new)
     
     # Print welcome message
     console.print("\n[bold blue]AI Assistant CLI[/bold blue]")
@@ -59,7 +65,6 @@ def chat(
         ai_engine = get_ai_engine()
         response = asyncio.run(
             ai_engine.process_message(
-                conversation=conversation,
                 message=user_input
             )
         )
@@ -92,12 +97,18 @@ def rag(
     
     # Process query
     ai_engine = get_ai_engine()
-    response = asyncio.run(
-        ai_engine.process_rag_query(
-            query=query,
-            conversation=conversation
+    if conversation:
+        response = asyncio.run(
+            ai_engine.process_rag_query(
+                query=query
+            )
         )
-    )
+    else:
+        response = asyncio.run(
+            ai_engine.process_rag_query(
+                query=query
+            )
+        )
     
     # Print response
     console.print("\n[bold blue]RAG Response[/bold blue]")
@@ -143,6 +154,30 @@ def list_conversations():
         console.print(f"Title: {title}")
         console.print(f"Last updated: {updated_at}")
         console.print()
+
+
+@app.command()
+def serve(
+    host: str = "127.0.0.1",
+    port: int = 8000,
+    log_level: str = "info",
+    reload: bool = False
+):
+    """
+    Uruchamia serwer FastAPI z AI Assistant.
+    """
+    setup_logging()
+    console.print(f"[green]Startuję serwer na http://{host}:{port}[/green]")
+    uvicorn.run(
+        "main:app",
+        host=host,
+        port=port,
+        log_level=log_level,
+        reload=reload,
+        ws_max_size=1024 * 1024 * 10,  # 10MB
+        ws_ping_interval=20.0,
+        ws_ping_timeout=20.0
+    )
 
 
 if __name__ == "__main__":

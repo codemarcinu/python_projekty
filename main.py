@@ -3,8 +3,6 @@ Główny moduł aplikacji AI Assistant.
 Zawiera punkt wejścia i konfigurację serwera.
 """
 
-import typer
-import uvicorn
 import logging
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -61,64 +59,18 @@ def create_app() -> FastAPI:
 # Tworzymy instancję aplikacji globalnie
 app = create_app()
 
-# Konfiguracja CLI z Typer
-cli = typer.Typer()
+class ConfigManager:
+    def load_config(self):
+        # Load configuration logic here
+        pass
 
-@cli.command()
-@inject
-def serve(
-    host: str = "127.0.0.1",
-    port: int = 8000,
-    log_level: str = "info",
-    reload: bool = False,
-    config_manager = Provide[Container.config_manager],
-    llm_manager = Provide[Container.llm_manager],
-    ai_engine = Provide[Container.ai_engine],
-    rag_manager = Provide[Container.rag_manager]
-):
-    """
-    Uruchamia serwer AI Assistant.
-    
-    Args:
-        host: Host do nasłuchiwania
-        port: Port do nasłuchiwania
-        log_level: Poziom logowania
-        reload: Czy włączyć auto-reload
-    """
-    setup_logging()
-    logging.info("Starting AI Assistant server...")
+config_manager = ConfigManager()
 
-    @app.on_event("startup")
-    def startup_event():
-        """Logika uruchamiana przy starcie aplikacji."""
-        logging.info("Waiting for application startup.")
-        try:
-            config_manager.load_config()
-            llm_manager.initialize_llm()
-            ai_engine.setup_agent()
-            rag_manager.initialize()
-            logging.info("Application startup complete.")
-        except Exception as e:
-            logging.error(f"Error during application startup: {e}", exc_info=True)
-            # W przyszłości można tu zaimplementować mechanizm, który zatrzyma serwer
-    
-    @app.on_event("shutdown")
-    def shutdown_event():
-        """Logika uruchamiana przy zamykaniu aplikacji."""
-        logging.info("Waiting for application shutdown.")
-        # Tutaj można dodać kod do czyszczenia zasobów, np. zamykanie połączeń
-        logging.info("Application shutdown complete.")
+@app.on_event("startup")
+async def startup_event():
+    config_manager.load_config()
+    logging.info("Application startup complete.")
 
-    uvicorn.run(
-        app,
-        host=host,
-        port=port,
-        log_level=log_level,
-        reload=reload,
-        ws_max_size=1024 * 1024 * 10,  # 10MB
-        ws_ping_interval=20.0,
-        ws_ping_timeout=20.0
-    )
-
-if __name__ == "__main__":
-    cli()
+@app.on_event("shutdown")
+async def shutdown_event():
+    logging.info("Application shutdown complete.")

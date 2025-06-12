@@ -74,7 +74,8 @@ class AIEngine:
             # Initialize embeddings with new import
             embeddings = HuggingFaceEmbeddings(
                 model_name=self.settings.rag.embedding_model,
-                model_kwargs={'device': 'cuda' if torch.cuda.is_available() else 'cpu'}
+                model_kwargs={'device': 'cuda' if torch.cuda.is_available() else 'cpu'},
+                trust_remote_code=True
             )
             # Initialize vector store with security flag
             try:
@@ -248,55 +249,74 @@ Thought: {agent_scratchpad}"""
             
             if use_rag and self.rag_chain:
                 try:
-                    return await self.process_rag_query(message)
+                    response = await self.rag_chain.ainvoke({"question": message})
+                    return response["answer"]
                 except Exception as e:
-                    logger.error(f"Błąd przetwarzania RAG: {e}")
+                    logger.error(f"Błąd RAG: {e}", exc_info=True)
             
-            return await self._direct_llm_response(message)
+            # Fallback do bezpośredniej odpowiedzi LLM
+            try:
+                return await self._direct_llm_response(message)
+            except Exception as e:
+                logger.error(f"Direct LLM error: {e}", exc_info=True)
+                return "Przepraszam, nie mogę teraz odpowiedzieć."
             
         except Exception as e:
-            error_msg = f"Błąd przetwarzania wiadomości: {str(e)}"
-            logger.error(error_msg, exc_info=True)
-            raise AIEngineError(error_msg)
+            logger.error(f"Error processing message: {e}", exc_info=True)
+            return "Przepraszam, wystąpił błąd podczas przetwarzania wiadomości."
     
     async def _direct_llm_response(self, message: str) -> str:
-        """Get direct response from LLM without tools."""
+        """Generuje bezpośrednią odpowiedź LLM bez użycia narzędzi."""
         try:
             response = await self.llm_manager.generate(message)
-            return str(response) if response is not None else "Nie wygenerowano odpowiedzi"
+            return response
         except Exception as e:
-            logger.error(f"Direct LLM error: {e}")
-            return "Przepraszam, nie mogę teraz odpowiedzieć."
+            logger.error(f"Error in direct LLM response: {e}")
+            raise
     
     async def process_rag_query(self, query: str, chat_history: str = "") -> str:
-        """Process a query using the RAG chain if available."""
-        if not query:
-            return "No query provided."
-        if self.rag_chain is None:
-            logger.warning("RAG chain is not initialized. Cannot process query.")
-            return "RAG chain is not available. Please add documents or check vector store setup."
+        """
+        Przetwarza zapytanie używając RAG.
+        
+        Args:
+            query: Zapytanie użytkownika
+            chat_history: Historia konwersacji
+            
+        Returns:
+            str: Odpowiedź wygenerowana przez RAG
+        """
+        if not self.rag_chain:
+            return "Przepraszam, system RAG nie jest dostępny."
+        
         try:
-            response = await self.rag_chain.arun(
-                question=query,
-                chat_history=chat_history or ""
-            )
-            return str(response) if response is not None else "No response generated"
+            response = await self.rag_chain.ainvoke({
+                "question": query,
+                "chat_history": chat_history
+            })
+            return response["answer"]
         except Exception as e:
             logger.error(f"Error in RAG query: {e}")
-            return f"Error processing RAG query: {e}"
-
+            return "Przepraszam, wystąpił błąd podczas przetwarzania zapytania."
+    
     def get_agent_status(self) -> dict:
-        """Get current agent status and available tools."""
+        """
+        Zwraca status agenta i dostępnych narzędzi.
+        
+        Returns:
+            dict: Status agenta
+        """
         return {
-            "agent_available": self.agent_executor is not None,
-            "tools_count": len(self.tools) if self.tools else 0,
-            "available_tools": [tool.name for tool in self.tools] if self.tools else [],
-            "default_enabled": True
+            "tools_loaded": len(self.tools) if hasattr(self, 'tools') else 0,
+            "agent_configured": self.agent is not None,
+            "rag_available": self.rag_chain is not None,
+            "llm_initialized": self.llm_manager.llm is not None
         }
 
-# Create global AI engine instance
-ai_engine = AIEngine()
-
 def get_ai_engine() -> AIEngine:
-    """Get the global AI engine instance."""
-    return ai_engine
+    """
+    Zwraca instancję AIEngine (singleton).
+    
+    Returns:
+        AIEngine: Instancja silnika AI
+    """
+    return AIEngine()
