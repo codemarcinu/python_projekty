@@ -12,6 +12,8 @@ import json
 import os
 from datetime import datetime
 from pydantic import BaseModel
+from pydantic_numpy.typing import NpNDArray
+from pydantic_numpy import np_array_pydantic_annotated_typing
 import asyncio
 
 from .config import Settings
@@ -25,7 +27,7 @@ class Document(BaseModel):
     id: str
     content: str
     metadata: Dict[str, Any]
-    embedding: Optional[np.ndarray] = None
+    embedding: Optional[np_array_pydantic_annotated_typing(data_type=np.float32)] = None
 
 class RAGManager:
     """Klasa zarządzająca RAG."""
