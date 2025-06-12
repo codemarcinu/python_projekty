@@ -220,17 +220,15 @@ function sendMessage() {
     const message = messageInput.value.trim();
     if (!message) return;
 
-    // Add user message
+    // Dodaj wiadomość użytkownika do historii
     addMessage('user', message);
     
-    // Clear input
+    // Wyślij wiadomość do backendu przez WebSocket
+    wsManager.sendMessage(message);
+    
+    // Wyczyść input
     messageInput.value = '';
     messageInput.style.height = 'auto';
-    
-    // Simulate AI response (replace with actual API call)
-    setTimeout(() => {
-        addMessage('ai', 'To jest przykładowa odpowiedź AI. W rzeczywistej implementacji tutaj będzie odpowiedź z modelu.');
-    }, 1000);
 }
 
 function addMessage(role, content) {

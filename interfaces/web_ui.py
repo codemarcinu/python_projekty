@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 import asyncio
 from datetime import datetime
 import logging
+import json
 
 # Importujemy nasz gotowy silnik AI i menedżera konwersacji
 from core.ai_engine import AIEngine, get_ai_engine
@@ -57,51 +58,40 @@ async def verify_api_key(api_key: str = Depends(api_key_header)):
 async def websocket_endpoint(websocket: WebSocket, user_id: str):
     """
     Endpoint WebSocket do obsługi komunikacji w czasie rzeczywistym.
-    
-    Args:
-        websocket: Połączenie WebSocket
-        user_id: ID użytkownika
     """
     try:
-        # Akceptuj połączenie
         await websocket.accept()
         logging.info(f"WebSocket connection accepted for user {user_id}")
-        
-        # Inicjalizuj konwersację
         conversation_id = conversation_manager.create_conversation(user_id)
         logging.info(f"Created conversation {conversation_id} for user {user_id}")
-        
         while True:
             try:
-                # Odbierz wiadomość
-                message = await websocket.receive_text()
+                # Odbierz wiadomość (JSON lub tekst)
+                data = await websocket.receive_text()
+                try:
+                    msg = json.loads(data)
+                    message = msg.get('content', '')
+                except Exception:
+                    message = data
                 logging.debug(f"Received message from user {user_id}: {message[:100]}...")
-                
-                # Przetwórz wiadomość
                 if not rag_manager.model or not rag_manager.index:
                     await rag_manager.initialize()
-                
                 response = await ai_engine.process_message(
                     message=message,
-                    model="gemma3:12b",
-                    use_rag=True
+                    conversation_id=user_id
                 )
-                
-                # Wyślij odpowiedź jako JSON
                 await websocket.send_json({
                     "type": "message",
                     "content": response
                 })
                 logging.debug(f"Sent response to user {user_id}: {response[:100]}...")
-                
             except WebSocketDisconnect:
                 logging.info(f"WebSocket disconnected for user {user_id}")
                 break
             except Exception as e:
                 error_msg = f"Error processing message: {str(e)}"
                 logging.error(error_msg, exc_info=True)
-                await websocket.send_text(f"Error: {error_msg}")
-                
+                await websocket.send_json({"type": "error", "message": error_msg})
     except Exception as e:
         logging.error(f"WebSocket error for user {user_id}: {str(e)}", exc_info=True)
         try:
@@ -109,7 +99,6 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
         except:
             pass
     finally:
-        # Wyczyść zasoby konwersacji
         try:
             conversation_manager.end_conversation(conversation_id.id)
             logging.info(f"Ended conversation {conversation_id.id} for user {user_id}")
